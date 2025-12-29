@@ -95,10 +95,26 @@ export default function DashboardPage() {
     return d.toLocaleString("vi-VN");
   };
 
+  // Helper to get local date string
+  const getLocalDateString = (date: Date = new Date()): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   const totalToday = salesRecords
     .filter((record) => {
-      const recordDate = record.date || record.createdAt?.toDate?.()?.toISOString().split("T")[0];
-      const today = new Date().toISOString().split("T")[0];
+      // Use record.date if available, otherwise extract from createdAt
+      let recordDate = record.date;
+      if (!recordDate && record.createdAt) {
+        const createdAt = record.createdAt as Date | { toDate: () => Date };
+        const date = (createdAt as { toDate?: () => Date }).toDate
+          ? (createdAt as { toDate: () => Date }).toDate()
+          : new Date(createdAt as Date);
+        recordDate = getLocalDateString(date);
+      }
+      const today = getLocalDateString();
       return recordDate === today;
     })
     .reduce((sum, record) => sum + (record.totalAmount || 0), 0);
@@ -119,8 +135,15 @@ export default function DashboardPage() {
             <div className="text-sm text-gray-500">Tổng đơn hôm nay</div>
             <div className="mt-2 text-2xl font-bold text-gray-900">
               {salesRecords.filter((r) => {
-                const recordDate = r.date || r.createdAt?.toDate?.()?.toISOString().split("T")[0];
-                return recordDate === new Date().toISOString().split("T")[0];
+                let recordDate = r.date;
+                if (!recordDate && r.createdAt) {
+                  const createdAt = r.createdAt as Date | { toDate: () => Date };
+                  const date = (createdAt as { toDate?: () => Date }).toDate
+                    ? (createdAt as { toDate: () => Date }).toDate()
+                    : new Date(createdAt as Date);
+                  recordDate = getLocalDateString(date);
+                }
+                return recordDate === getLocalDateString();
               }).length}
             </div>
           </div>

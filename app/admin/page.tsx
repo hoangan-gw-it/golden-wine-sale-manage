@@ -26,6 +26,30 @@ export default function AdminPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<string>("");
   const [employees, setEmployees] = useState<User[]>([]);
 
+  // Helper function to get date string from record (handles both date field and createdAt)
+  const getRecordDateString = (record: SalesRecord): string => {
+    // If date field exists, use it
+    if (record.date) {
+      return record.date.trim();
+    }
+    // Otherwise, extract from createdAt
+    if (record.createdAt) {
+      const createdAt = record.createdAt as Date | { toDate: () => Date };
+      const date = (createdAt as { toDate?: () => Date }).toDate
+        ? (createdAt as { toDate: () => Date }).toDate()
+        : new Date(createdAt as Date);
+      // Get local date string
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    }
+    return "";
+  };
+
+  // Helper function to get today's date string in local timezone
+  const getTodayDateString = (): string => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  };
+
   useEffect(() => {
     loadEmployees();
     loadSalesRecords();
@@ -64,18 +88,21 @@ export default function AdminPage() {
 
         switch (filter) {
           case "today":
-            const today = new Date().toISOString().split("T")[0];
-            filteredData = filteredData.filter(
-              (record) => record.date === today
-            );
+            const todayStr = getTodayDateString();
+            const todayUTC = new Date().toISOString().split("T")[0];
+            filteredData = filteredData.filter((record) => {
+              const recordDate = getRecordDateString(record);
+              // Check both local date and UTC date for backward compatibility
+              return recordDate === todayStr || recordDate === todayUTC;
+            });
             break;
           case "week":
             const weekStart = new Date();
             weekStart.setDate(weekStart.getDate() - weekStart.getDay());
             const weekEnd = new Date(weekStart);
             weekEnd.setDate(weekStart.getDate() + 6);
-            const weekStartStr = weekStart.toISOString().split("T")[0];
-            const weekEndStr = weekEnd.toISOString().split("T")[0];
+            const weekStartStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, "0")}-${String(weekStart.getDate()).padStart(2, "0")}`;
+            const weekEndStr = `${weekEnd.getFullYear()}-${String(weekEnd.getMonth() + 1).padStart(2, "0")}-${String(weekEnd.getDate()).padStart(2, "0")}`;
             filteredData = filteredData.filter(
               (record) =>
                 record.date >= weekStartStr && record.date <= weekEndStr
@@ -95,8 +122,27 @@ export default function AdminPage() {
         // No employee filter, use existing logic
         switch (filter) {
           case "today":
-            const today = new Date().toISOString().split("T")[0];
-            result = await getSalesRecordsByDate(today);
+            // Get all records and filter on client side to ensure accuracy
+            const allRecordsResult = await getAllSalesRecords();
+            if (allRecordsResult.error || !allRecordsResult.data) {
+              result = allRecordsResult;
+              break;
+            }
+            
+            const todayStr2 = getTodayDateString();
+            const todayUTC2 = new Date().toISOString().split("T")[0];
+            
+            // Filter records by date (check both local and UTC dates)
+            const filteredToday = allRecordsResult.data.filter((record) => {
+              const recordDate = getRecordDateString(record);
+              // Check both local date and UTC date for backward compatibility
+              return recordDate === todayStr2 || recordDate === todayUTC2;
+            });
+            
+            result = {
+              data: filteredToday,
+              error: null
+            };
             break;
           case "week":
             result = await getSalesRecordsForWeek();
@@ -185,7 +231,9 @@ export default function AdminPage() {
     // Generate filename with date range
     let filename = "bao_cao_ban_hang";
     if (filter === "today") {
-      filename += `_${new Date().toISOString().split("T")[0]}`;
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      filename += `_${todayStr}`;
     } else if (filter === "week") {
       filename += "_tuan_nay";
     } else if (filter === "custom" && startDate && endDate) {
@@ -364,21 +412,24 @@ export default function AdminPage() {
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:ml-auto">
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm sm:text-base flex-1 sm:flex-none"
-                placeholder="Chọn ngày"
-              />
-              <button
-                onClick={handleDateFilter}
-                className="bg-gray-600 text-white px-3 sm:px-4 py-2 rounded-md hover:bg-gray-700 text-sm sm:text-base whitespace-nowrap"
-              >
-                Lọc theo ngày
-              </button>
-            </div>
+            {/* Hide "Lọc theo ngày" when "Tùy chọn" is selected */}
+            {filter !== "custom" && (
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:ml-auto">
+                <input
+                  type="date"
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm sm:text-base flex-1 sm:flex-none"
+                  placeholder="Chọn ngày"
+                />
+                <button
+                  onClick={handleDateFilter}
+                  className="bg-gray-600 text-white px-3 sm:px-4 py-2 rounded-md hover:bg-gray-700 text-sm sm:text-base whitespace-nowrap"
+                >
+                  Lọc theo ngày
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

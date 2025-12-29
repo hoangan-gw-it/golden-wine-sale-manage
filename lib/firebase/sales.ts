@@ -3,6 +3,14 @@ import { SalesRecord } from "../types";
 
 const SALES_RECORDS_COLLECTION = "sales_records";
 
+// Helper function to get local date string (YYYY-MM-DD) in Vietnam timezone
+const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 // Create a new sales record
 export const createSalesRecord = async (
   productName: string,
@@ -12,7 +20,7 @@ export const createSalesRecord = async (
   salesPersonName: string
 ) => {
   const totalAmount = quantity * price;
-  const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  const date = getLocalDateString(); // YYYY-MM-DD (local timezone)
   
   const salesRecord: Omit<SalesRecord, "id"> = {
     productName,
@@ -91,8 +99,8 @@ export const getSalesRecordsForWeek = async () => {
   endOfWeek.setDate(today.getDate() + (6 - today.getDay())); // Saturday
   endOfWeek.setHours(23, 59, 59, 999);
   
-  const startDate = startOfWeek.toISOString().split("T")[0];
-  const endDate = endOfWeek.toISOString().split("T")[0];
+  const startDate = getLocalDateString(startOfWeek);
+  const endDate = getLocalDateString(endOfWeek);
   
   return await getSalesRecordsByDateRange(startDate, endDate);
 };
