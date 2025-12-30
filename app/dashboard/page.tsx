@@ -55,7 +55,7 @@ export default function DashboardPage() {
 
       // Load all products with pagination
       while (hasNextPage) {
-        const response = await fetch(
+        const response: Response = await fetch(
           `/api/shopify/products?first=250${after ? `&after=${after}` : ""}`
         );
         if (!response.ok) {
