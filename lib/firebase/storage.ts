@@ -20,6 +20,7 @@ export const uploadFile = async (
     const snapshot = await uploadBytes(storageRef, file, { customMetadata: metadata });
     const downloadURL = await getDownloadURL(snapshot.ref);
     return { url: downloadURL, error: null };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     return { url: null, error: error.message };
   }
@@ -31,6 +32,7 @@ export const getFileURL = async (path: string) => {
     const storageRef = ref(storage, path);
     const downloadURL = await getDownloadURL(storageRef);
     return { url: downloadURL, error: null };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     return { url: null, error: error.message };
   }
@@ -42,6 +44,7 @@ export const deleteFile = async (path: string) => {
     const storageRef = ref(storage, path);
     await deleteObject(storageRef);
     return { error: null };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     return { error: error.message };
   }
@@ -53,6 +56,7 @@ export const listFiles = async (path: string) => {
     const folderRef = ref(storage, path);
     const result = await listAll(folderRef);
     return { items: result.items, error: null };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     return { items: [], error: error.message };
   }
@@ -64,6 +68,7 @@ export const getFileMetadata = async (path: string) => {
     const storageRef = ref(storage, path);
     const metadata = await getMetadata(storageRef);
     return { metadata, error: null };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     return { metadata: null, error: error.message };
   }

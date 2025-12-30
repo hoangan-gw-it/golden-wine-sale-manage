@@ -14,7 +14,8 @@ export interface SalesRecord {
   id: string;
   productName: string;
   quantity: number;
-  price: number;
+  price: number; // Giá bán thực tế
+  originalPrice?: number; // Giá gốc từ Shopify
   totalAmount: number;
   salesPersonId: string;
   salesPersonName: string;
@@ -22,5 +23,3 @@ export interface SalesRecord {
   updatedAt: Date;
   date: string; // YYYY-MM-DD format for easy querying
 }
-
-

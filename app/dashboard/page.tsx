@@ -2,27 +2,137 @@
 
 import { useState, useEffect } from "react";
 import Layout from "@/components/Layout";
-import { createSalesRecord, getSalesRecordsBySalesPerson } from "@/lib/firebase/sales";
+import {
+  createSalesRecord,
+  getSalesRecordsBySalesPerson,
+} from "@/lib/firebase/sales";
 import { useAuth } from "@/lib/hooks/useAuth";
+
+interface ShopifyProduct {
+  id: string;
+  title: string;
+  priceRange: {
+    minVariantPrice: {
+      amount: string;
+      currencyCode: string;
+    };
+  };
+}
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const [products, setProducts] = useState<ShopifyProduct[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState("");
   const [productName, setProductName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
+  const [originalPrice, setOriginalPrice] = useState<number | undefined>(
+    undefined
+  );
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [message, setMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [salesRecords, setSalesRecords] = useState<any[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [showProductDropdown, setShowProductDropdown] = useState(false);
 
   useEffect(() => {
     if (user) {
       loadSalesRecords();
+      loadProducts();
     }
   }, [user]);
 
+  const loadProducts = async () => {
+    setLoadingProducts(true);
+    try {
+      let allProducts: ShopifyProduct[] = [];
+      let hasNextPage = true;
+      let after: string | undefined = undefined;
+
+      // Load all products with pagination
+      while (hasNextPage) {
+        const response = await fetch(
+          `/api/shopify/products?first=250${after ? `&after=${after}` : ""}`
+        );
+        if (!response.ok) {
+          throw new Error("Failed to load products");
+        }
+        const data = await response.json();
+        allProducts = [...allProducts, ...(data.products || [])];
+        hasNextPage = data.pageInfo?.hasNextPage || false;
+        after = data.pageInfo?.endCursor;
+      }
+
+      setProducts(allProducts);
+    } catch (error) {
+      console.error("Error loading products:", error);
+      setMessage({
+        type: "error",
+        text: "Không thể tải danh sách sản phẩm từ Shopify",
+      });
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
+
+  const handleProductSelect = (product: ShopifyProduct) => {
+    setSelectedProductId(product.id);
+    setProductName(product.title);
+    setProductSearch(product.title);
+    setShowProductDropdown(false);
+
+    // Get price from Shopify
+    const shopifyPrice = parseFloat(product.priceRange.minVariantPrice.amount);
+    const currencyCode = product.priceRange.minVariantPrice.currencyCode;
+
+    // Convert to VND based on currency code
+    let priceInVND: number;
+    if (currencyCode === "VND") {
+      // Already in VND, use directly
+      priceInVND = Math.round(shopifyPrice);
+    } else if (currencyCode === "USD") {
+      // Convert USD to VND (adjust rate as needed)
+      priceInVND = Math.round(shopifyPrice * 25000);
+    } else {
+      // For other currencies, assume already in VND or use a default conversion
+      // You can add more currency conversions here if needed
+      priceInVND = Math.round(shopifyPrice);
+    }
+
+    setOriginalPrice(priceInVND);
+    setPrice(priceInVND.toString());
+  };
+
+  const handleProductSearchChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const searchValue = e.target.value;
+    setProductSearch(searchValue);
+    setShowProductDropdown(true);
+
+    // Clear selection if search is cleared
+    if (!searchValue) {
+      setSelectedProductId("");
+      setProductName("");
+      setPrice("");
+      setOriginalPrice(undefined);
+    }
+  };
+
+  // Filter products based on search
+  const filteredProducts = productSearch
+    ? products.filter((product) =>
+        product.title.toLowerCase().includes(productSearch.toLowerCase())
+      )
+    : products; // Show all products if no search term
+
   const loadSalesRecords = async () => {
     if (!user) return;
-    
+
     console.log("Loading sales records for user:", user.id);
     const { data, error } = await getSalesRecordsBySalesPerson(user.id);
     console.log("Sales records result:", { data, error });
@@ -35,7 +145,7 @@ export default function DashboardPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user) return;
 
     if (!productName.trim() || !quantity || !price) {
@@ -60,16 +170,21 @@ export default function DashboardPage() {
         quantityNum,
         priceNum,
         user.id,
-        user.displayName || user.email
+        user.displayName || user.email,
+        originalPrice
       );
 
       if (error) {
         setMessage({ type: "error", text: error });
       } else {
         setMessage({ type: "success", text: "Thêm sản phẩm thành công!" });
+        setSelectedProductId("");
         setProductName("");
+        setProductSearch("");
         setQuantity("");
         setPrice("");
+        setOriginalPrice(undefined);
+        setShowProductDropdown(false);
         // Wait a bit before reloading to ensure data is written
         setTimeout(() => {
           loadSalesRecords();
@@ -119,11 +234,30 @@ export default function DashboardPage() {
     })
     .reduce((sum, record) => sum + (record.totalAmount || 0), 0);
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest(".relative")) {
+        setShowProductDropdown(false);
+      }
+    };
+
+    if (showProductDropdown) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }
+  }, [showProductDropdown]);
+
   return (
     <Layout role="sale">
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Nhập sản phẩm bán hàng</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Nhập sản phẩm bán hàng
+          </h1>
           <p className="mt-1 text-sm text-gray-500">
             Thêm sản phẩm, số lượng và giá để ghi nhận vào hệ thống
           </p>
@@ -134,17 +268,21 @@ export default function DashboardPage() {
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="text-sm text-gray-500">Tổng đơn hôm nay</div>
             <div className="mt-2 text-2xl font-bold text-gray-900">
-              {salesRecords.filter((r) => {
-                let recordDate = r.date;
-                if (!recordDate && r.createdAt) {
-                  const createdAt = r.createdAt as Date | { toDate: () => Date };
-                  const date = (createdAt as { toDate?: () => Date }).toDate
-                    ? (createdAt as { toDate: () => Date }).toDate()
-                    : new Date(createdAt as Date);
-                  recordDate = getLocalDateString(date);
-                }
-                return recordDate === getLocalDateString();
-              }).length}
+              {
+                salesRecords.filter((r) => {
+                  let recordDate = r.date;
+                  if (!recordDate && r.createdAt) {
+                    const createdAt = r.createdAt as
+                      | Date
+                      | { toDate: () => Date };
+                    const date = (createdAt as { toDate?: () => Date }).toDate
+                      ? (createdAt as { toDate: () => Date }).toDate()
+                      : new Date(createdAt as Date);
+                    recordDate = getLocalDateString(date);
+                  }
+                  return recordDate === getLocalDateString();
+                }).length
+              }
             </div>
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
@@ -155,32 +293,111 @@ export default function DashboardPage() {
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="text-sm text-gray-500">Tổng đơn đã ghi</div>
-            <div className="mt-2 text-2xl font-bold text-gray-900">{salesRecords.length}</div>
+            <div className="mt-2 text-2xl font-bold text-gray-900">
+              {salesRecords.length}
+            </div>
           </div>
         </div>
 
         {/* Form */}
         <div className="bg-white shadow rounded-lg p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="relative">
+              <label
+                htmlFor="productSearch"
+                className="block text-sm font-medium text-gray-700"
+              >
+                Chọn sản phẩm từ Shopify
+              </label>
+              <input
+                type="text"
+                id="productSearch"
+                value={productSearch}
+                onChange={handleProductSearchChange}
+                onFocus={() => setShowProductDropdown(true)}
+                disabled={loadingProducts}
+                placeholder="Nhập tên sản phẩm để tìm kiếm..."
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border disabled:bg-gray-50 disabled:cursor-not-allowed"
+              />
+              {loadingProducts && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Đang tải danh sách sản phẩm...
+                </p>
+              )}
+
+              {/* Dropdown list */}
+              {showProductDropdown && !loadingProducts && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                  {filteredProducts.length > 0 ? (
+                    filteredProducts.map((product) => {
+                      // Calculate price based on currency
+                      const shopifyPrice = parseFloat(
+                        product.priceRange.minVariantPrice.amount
+                      );
+                      const currencyCode =
+                        product.priceRange.minVariantPrice.currencyCode;
+                      let productPrice: number;
+
+                      if (currencyCode === "VND") {
+                        productPrice = Math.round(shopifyPrice);
+                      } else if (currencyCode === "USD") {
+                        productPrice = Math.round(shopifyPrice * 25000);
+                      } else {
+                        productPrice = Math.round(shopifyPrice);
+                      }
+
+                      return (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => handleProductSelect(product)}
+                          className="w-full text-left px-4 py-2 hover:bg-blue-50 focus:bg-blue-50 focus:outline-none border-b border-gray-100 last:border-b-0 transition-colors"
+                        >
+                          <div className="font-medium text-gray-900">
+                            {product.title}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {formatCurrency(productPrice)}
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-4 py-2 text-sm text-gray-500">
+                      {productSearch
+                        ? "Không tìm thấy sản phẩm nào"
+                        : "Nhập tên sản phẩm để tìm kiếm"}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div>
-              <label htmlFor="productName" className="block text-sm font-medium text-gray-700">
-                Tên sản phẩm *
+              <label
+                htmlFor="productName"
+                className="block text-sm font-medium text-gray-700"
+              >
+                Tên sản phẩm <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 id="productName"
                 value={productName}
-                onChange={(e) => setProductName(e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm px-3 py-2 border"
-                placeholder="Nhập tên sản phẩm"
+                disabled
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm bg-gray-50 cursor-not-allowed sm:text-sm px-3 py-2 border"
+                placeholder="Chọn sản phẩm từ danh sách trên"
                 required
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">
-                  Số lượng *
+                <label
+                  htmlFor="quantity"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Số lượng <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -196,8 +413,11 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <label htmlFor="price" className="block text-sm font-medium text-gray-700">
-                  Giá tiền (VNĐ) *
+                <label
+                  htmlFor="price"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Giá tiền (VNĐ) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -209,6 +429,11 @@ export default function DashboardPage() {
                   min="0"
                   required
                 />
+                {originalPrice && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Giá gốc: {formatCurrency(originalPrice)}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -237,7 +462,9 @@ export default function DashboardPage() {
         {/* Recent Records */}
         <div className="bg-white shadow rounded-lg overflow-hidden">
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
-            <h2 className="text-base sm:text-lg font-medium text-gray-900">Lịch sử bán hàng</h2>
+            <h2 className="text-base sm:text-lg font-medium text-gray-900">
+              Lịch sử bán hàng
+            </h2>
           </div>
           {/* Desktop Table */}
           <div className="hidden md:block overflow-x-auto">
@@ -264,7 +491,10 @@ export default function DashboardPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {salesRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 lg:px-6 py-4 text-center text-gray-500">
+                    <td
+                      colSpan={5}
+                      className="px-4 lg:px-6 py-4 text-center text-gray-500"
+                    >
                       Chưa có dữ liệu
                     </td>
                   </tr>
@@ -319,10 +549,12 @@ export default function DashboardPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                     <div>
-                      <span className="font-medium">Số lượng:</span> {record.quantity}
+                      <span className="font-medium">Số lượng:</span>{" "}
+                      {record.quantity}
                     </div>
                     <div>
-                      <span className="font-medium">Giá:</span> {formatCurrency(record.price)}
+                      <span className="font-medium">Giá:</span>{" "}
+                      {formatCurrency(record.price)}
                     </div>
                   </div>
                 </div>
@@ -334,4 +566,3 @@ export default function DashboardPage() {
     </Layout>
   );
 }
-

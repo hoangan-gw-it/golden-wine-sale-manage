@@ -1,4 +1,13 @@
-import { addDocument, getDocuments, getDocument, updateDocument, deleteDocument, where, orderBy, Timestamp } from "./firestore";
+import {
+  addDocument,
+  getDocuments,
+  getDocument,
+  updateDocument,
+  deleteDocument,
+  where,
+  orderBy,
+  Timestamp,
+} from "./firestore";
 import { SalesRecord } from "../types";
 
 const SALES_RECORDS_COLLECTION = "sales_records";
@@ -17,15 +26,17 @@ export const createSalesRecord = async (
   quantity: number,
   price: number,
   salesPersonId: string,
-  salesPersonName: string
+  salesPersonName: string,
+  originalPrice?: number
 ) => {
   const totalAmount = quantity * price;
   const date = getLocalDateString(); // YYYY-MM-DD (local timezone)
-  
+
   const salesRecord: Omit<SalesRecord, "id"> = {
     productName,
     quantity,
     price,
+    originalPrice,
     totalAmount,
     salesPersonId,
     salesPersonName,
@@ -33,8 +44,11 @@ export const createSalesRecord = async (
     createdAt: new Date(),
     updatedAt: new Date(),
   };
-  
-  return await addDocument<Omit<SalesRecord, "id">>(SALES_RECORDS_COLLECTION, salesRecord);
+
+  return await addDocument<Omit<SalesRecord, "id">>(
+    SALES_RECORDS_COLLECTION,
+    salesRecord
+  );
 };
 
 // Get sales records by sales person
@@ -45,7 +59,7 @@ export const getSalesRecordsBySalesPerson = async (salesPersonId: string) => {
       where("salesPersonId", "==", salesPersonId),
       orderBy("createdAt", "desc"),
     ]);
-    
+
     // If error contains index, try without orderBy
     if (result.error && result.error.includes("index")) {
       console.warn("Index required, trying without orderBy");
@@ -53,7 +67,7 @@ export const getSalesRecordsBySalesPerson = async (salesPersonId: string) => {
         where("salesPersonId", "==", salesPersonId),
       ]);
     }
-    
+
     return result;
   } catch (error: any) {
     // Fallback: try without orderBy
@@ -72,7 +86,10 @@ export const getAllSalesRecords = async () => {
 };
 
 // Get sales records by date range
-export const getSalesRecordsByDateRange = async (startDate: string, endDate: string) => {
+export const getSalesRecordsByDateRange = async (
+  startDate: string,
+  endDate: string
+) => {
   return await getDocuments<SalesRecord>(SALES_RECORDS_COLLECTION, [
     where("date", ">=", startDate),
     where("date", "<=", endDate),
@@ -94,14 +111,14 @@ export const getSalesRecordsForWeek = async () => {
   const startOfWeek = new Date(today);
   startOfWeek.setDate(today.getDate() - today.getDay()); // Sunday
   startOfWeek.setHours(0, 0, 0, 0);
-  
+
   const endOfWeek = new Date(today);
   endOfWeek.setDate(today.getDate() + (6 - today.getDay())); // Saturday
   endOfWeek.setHours(23, 59, 59, 999);
-  
+
   const startDate = getLocalDateString(startOfWeek);
   const endDate = getLocalDateString(endOfWeek);
-  
+
   return await getSalesRecordsByDateRange(startDate, endDate);
 };
 
@@ -111,17 +128,20 @@ export const updateSalesRecord = async (
   data: Partial<Pick<SalesRecord, "productName" | "quantity" | "price">>
 ) => {
   const updates: any = { ...data, updatedAt: new Date() };
-  
+
   // Recalculate total if quantity or price changed
   if (data.quantity !== undefined || data.price !== undefined) {
-    const { data: record } = await getDocument<SalesRecord>(SALES_RECORDS_COLLECTION, recordId);
+    const { data: record } = await getDocument<SalesRecord>(
+      SALES_RECORDS_COLLECTION,
+      recordId
+    );
     if (record) {
       const quantity = data.quantity ?? record.quantity;
       const price = data.price ?? record.price;
       updates.totalAmount = quantity * price;
     }
   }
-  
+
   return await updateDocument(SALES_RECORDS_COLLECTION, recordId, updates);
 };
 
@@ -129,4 +149,3 @@ export const updateSalesRecord = async (
 export const deleteSalesRecord = async (recordId: string) => {
   return await deleteDocument(SALES_RECORDS_COLLECTION, recordId);
 };
-

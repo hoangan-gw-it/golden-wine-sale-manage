@@ -39,7 +39,10 @@ export default function AdminPage() {
         ? (createdAt as { toDate: () => Date }).toDate()
         : new Date(createdAt as Date);
       // Get local date string
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(date.getDate()).padStart(2, "0")}`;
     }
     return "";
   };
@@ -47,7 +50,10 @@ export default function AdminPage() {
   // Helper function to get today's date string in local timezone
   const getTodayDateString = (): string => {
     const today = new Date();
-    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(today.getDate()).padStart(2, "0")}`;
   };
 
   useEffect(() => {
@@ -101,8 +107,15 @@ export default function AdminPage() {
             weekStart.setDate(weekStart.getDate() - weekStart.getDay());
             const weekEnd = new Date(weekStart);
             weekEnd.setDate(weekStart.getDate() + 6);
-            const weekStartStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, "0")}-${String(weekStart.getDate()).padStart(2, "0")}`;
-            const weekEndStr = `${weekEnd.getFullYear()}-${String(weekEnd.getMonth() + 1).padStart(2, "0")}-${String(weekEnd.getDate()).padStart(2, "0")}`;
+            const weekStartStr = `${weekStart.getFullYear()}-${String(
+              weekStart.getMonth() + 1
+            ).padStart(2, "0")}-${String(weekStart.getDate()).padStart(
+              2,
+              "0"
+            )}`;
+            const weekEndStr = `${weekEnd.getFullYear()}-${String(
+              weekEnd.getMonth() + 1
+            ).padStart(2, "0")}-${String(weekEnd.getDate()).padStart(2, "0")}`;
             filteredData = filteredData.filter(
               (record) =>
                 record.date >= weekStartStr && record.date <= weekEndStr
@@ -128,20 +141,20 @@ export default function AdminPage() {
               result = allRecordsResult;
               break;
             }
-            
+
             const todayStr2 = getTodayDateString();
             const todayUTC2 = new Date().toISOString().split("T")[0];
-            
+
             // Filter records by date (check both local and UTC dates)
             const filteredToday = allRecordsResult.data.filter((record) => {
               const recordDate = getRecordDateString(record);
               // Check both local date and UTC date for backward compatibility
               return recordDate === todayStr2 || recordDate === todayUTC2;
             });
-            
+
             result = {
               data: filteredToday,
-              error: null
+              error: null,
             };
             break;
           case "week":
@@ -232,7 +245,9 @@ export default function AdminPage() {
     let filename = "bao_cao_ban_hang";
     if (filter === "today") {
       const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const todayStr = `${today.getFullYear()}-${String(
+        today.getMonth() + 1
+      ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
       filename += `_${todayStr}`;
     } else if (filter === "week") {
       filename += "_tuan_nay";
@@ -465,7 +480,13 @@ export default function AdminPage() {
                         Số lượng
                       </th>
                       <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Giá
+                        Giá bán
+                      </th>
+                      <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Giá gốc
+                      </th>
+                      <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Chênh lệch
                       </th>
                       <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Tổng tiền
@@ -476,35 +497,65 @@ export default function AdminPage() {
                     {salesRecords.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={8}
                           className="px-4 lg:px-6 py-4 text-center text-gray-500"
                         >
                           Chưa có dữ liệu
                         </td>
                       </tr>
                     ) : (
-                      salesRecords.map((record) => (
-                        <tr key={record.id}>
-                          <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {formatDate(record.createdAt)}
-                          </td>
-                          <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {record.salesPersonName}
-                          </td>
-                          <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {record.productName}
-                          </td>
-                          <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {record.quantity}
-                          </td>
-                          <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {formatCurrency(record.price)}
-                          </td>
-                          <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                            {formatCurrency(record.totalAmount)}
-                          </td>
-                        </tr>
-                      ))
+                      salesRecords.map((record) => {
+                        const priceDiff = record.originalPrice
+                          ? record.price - record.originalPrice
+                          : null;
+                        const diffColor =
+                          priceDiff === null
+                            ? "text-gray-500"
+                            : priceDiff < 0
+                            ? "text-red-600"
+                            : priceDiff > 0
+                            ? "text-green-600"
+                            : "text-gray-500";
+                        const diffSign =
+                          priceDiff !== null && priceDiff > 0 ? "+" : "";
+
+                        return (
+                          <tr key={record.id}>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {formatDate(record.createdAt)}
+                            </td>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {record.salesPersonName}
+                            </td>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {record.productName}
+                            </td>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {record.quantity}
+                            </td>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {formatCurrency(record.price)}
+                            </td>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {record.originalPrice
+                                ? formatCurrency(record.originalPrice)
+                                : "-"}
+                            </td>
+                            <td
+                              className={`px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${diffColor}`}
+                            >
+                              {priceDiff !== null
+                                ? `${diffSign}${formatCurrency(
+                                    Math.abs(priceDiff)
+                                  )}`
+                                : "-"}
+                            </td>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
+                              {formatCurrency(record.totalAmount)}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -517,39 +568,71 @@ export default function AdminPage() {
                     Chưa có dữ liệu
                   </div>
                 ) : (
-                  salesRecords.map((record) => (
-                    <div key={record.id} className="p-4 space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h3 className="text-sm font-medium text-gray-900">
-                            {record.productName}
-                          </h3>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {formatDate(record.createdAt)}
-                          </p>
+                  salesRecords.map((record) => {
+                    const priceDiff = record.originalPrice
+                      ? record.price - record.originalPrice
+                      : null;
+                    const diffColor =
+                      priceDiff === null
+                        ? "text-gray-500"
+                        : priceDiff < 0
+                        ? "text-red-600"
+                        : priceDiff > 0
+                        ? "text-green-600"
+                        : "text-gray-500";
+                    const diffSign =
+                      priceDiff !== null && priceDiff > 0 ? "+" : "";
+
+                    return (
+                      <div key={record.id} className="p-4 space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <h3 className="text-sm font-medium text-gray-900">
+                              {record.productName}
+                            </h3>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {formatDate(record.createdAt)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-green-600">
+                              {formatCurrency(record.totalAmount)}
+                            </p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium text-green-600">
-                            {formatCurrency(record.totalAmount)}
-                          </p>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                          <div>
+                            <span className="font-medium">Nhân viên:</span>{" "}
+                            {record.salesPersonName}
+                          </div>
+                          <div>
+                            <span className="font-medium">Số lượng:</span>{" "}
+                            {record.quantity}
+                          </div>
+                          <div>
+                            <span className="font-medium">Giá bán:</span>{" "}
+                            {formatCurrency(record.price)}
+                          </div>
+                          <div>
+                            <span className="font-medium">Giá gốc:</span>{" "}
+                            {record.originalPrice
+                              ? formatCurrency(record.originalPrice)
+                              : "-"}
+                          </div>
+                          <div className="col-span-2">
+                            <span className="font-medium">Chênh lệch:</span>{" "}
+                            <span className={`font-medium ${diffColor}`}>
+                              {priceDiff !== null
+                                ? `${diffSign}${formatCurrency(
+                                    Math.abs(priceDiff)
+                                  )}`
+                                : "-"}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                        <div>
-                          <span className="font-medium">Nhân viên:</span>{" "}
-                          {record.salesPersonName}
-                        </div>
-                        <div>
-                          <span className="font-medium">Số lượng:</span>{" "}
-                          {record.quantity}
-                        </div>
-                        <div>
-                          <span className="font-medium">Giá:</span>{" "}
-                          {formatCurrency(record.price)}
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </>
