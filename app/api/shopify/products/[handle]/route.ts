@@ -4,10 +4,10 @@ import { shopifyFetch, PRODUCT_BY_HANDLE_QUERY } from "@/lib/shopify";
 // GET /api/shopify/products/[handle] - Lấy thông tin chi tiết sản phẩm theo handle
 export async function GET(
   request: NextRequest,
-  { params }: { params: { handle: string } }
+  { params }: { params: Promise<{ handle: string }> }
 ) {
   try {
-    const { handle } = params;
+    const { handle } = await params;
 
     if (!handle) {
       return NextResponse.json(
@@ -25,10 +25,7 @@ export async function GET(
     });
 
     if (!data.data.product) {
-      return NextResponse.json(
-        { error: "Product not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
     return NextResponse.json(
@@ -39,13 +36,12 @@ export async function GET(
     );
   } catch (error: unknown) {
     console.error("Error fetching Shopify product:", error);
-    
-    const errorMessage = error instanceof Error ? error.message : "Failed to fetch product from Shopify";
-    
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
+
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Failed to fetch product from Shopify";
+
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
-
