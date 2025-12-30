@@ -6,8 +6,7 @@ import {
   User,
   updateProfile,
   sendPasswordResetEmail,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   GoogleAuthProvider,
 } from "firebase/auth";
 import { auth } from "./config";
@@ -83,28 +82,12 @@ export const resetPassword = async (email: string) => {
   }
 };
 
-// Sign in with Google using redirect (more compatible with Google's security policies)
+// Sign in with Google
 export const signInWithGoogle = async () => {
   try {
     const provider = new GoogleAuthProvider();
-    // Use redirect instead of popup to avoid "disallowed_useragent" error
-    await signInWithRedirect(auth, provider);
-    // Note: The actual user will be returned via getRedirectResult after redirect
-    return { user: null, error: null, redirecting: true };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    return { user: null, error: error.message, redirecting: false };
-  }
-};
-
-// Get the result after Google redirect
-export const getGoogleRedirectResult = async () => {
-  try {
-    const result = await getRedirectResult(auth);
-    if (result && result.user) {
-      return { user: result.user, error: null };
-    }
-    return { user: null, error: null };
+    const userCredential = await signInWithPopup(auth, provider);
+    return { user: userCredential.user, error: null };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     return { user: null, error: error.message };

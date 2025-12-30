@@ -2,11 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import {
-  signInWithGoogle,
-  logout,
-  getGoogleRedirectResult,
-} from "@/lib/firebase/auth";
+import { signInWithGoogle, logout } from "@/lib/firebase/auth";
 import { isUserWhitelisted, createOrUpdateUser } from "@/lib/firebase/users";
 import { useAuth } from "@/lib/hooks/useAuth";
 
@@ -15,58 +11,6 @@ export default function LoginPage() {
   const { firebaseUser, user, loading } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
-
-  // Check for Google redirect result when component mounts
-  useEffect(() => {
-    const handleRedirectResult = async () => {
-      const { user: redirectUser, error: redirectError } =
-        await getGoogleRedirectResult();
-
-      if (redirectError) {
-        setError(redirectError);
-        setSigningIn(false);
-        return;
-      }
-
-      if (redirectUser) {
-        setSigningIn(true);
-
-        // Check if user is whitelisted
-        const { isWhitelisted, user: existingUser } = await isUserWhitelisted(
-          redirectUser.email || ""
-        );
-
-        if (!isWhitelisted) {
-          // User is not whitelisted, sign them out
-          await logout();
-          setError(
-            "Tài khoản của bạn chưa được cấp quyền truy cập. Vui lòng liên hệ quản trị viên."
-          );
-          setSigningIn(false);
-          return;
-        }
-
-        // Create or update user in Firestore
-        await createOrUpdateUser(
-          redirectUser.uid,
-          redirectUser.email || "",
-          redirectUser.displayName,
-          existingUser?.role || "sale",
-          true
-        );
-
-        // Redirect based on role
-        if (existingUser?.role === "admin") {
-          router.push("/admin");
-        } else {
-          router.push("/dashboard");
-        }
-      }
-    };
-
-    handleRedirectResult();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
 
   // Redirect if already logged in
   useEffect(() => {
@@ -84,22 +28,45 @@ export default function LoginPage() {
       setSigningIn(true);
       setError(null);
 
-      // Sign in with Google (will redirect to Google OAuth page)
-      const { error: signInError, redirecting } = await signInWithGoogle();
+      // Sign in with Google
+      const { user: firebaseUser, error: signInError } =
+        await signInWithGoogle();
 
-      if (signInError) {
-        setError(signInError);
+      if (signInError || !firebaseUser) {
+        setError(signInError || "Đăng nhập thất bại");
         setSigningIn(false);
         return;
       }
 
-      // If redirecting, the user will be redirected to Google
-      // The result will be handled by the useEffect hook above
-      if (redirecting) {
-        // Keep signingIn state as true, user will be redirected
-        return;
+      // Check if user is whitelisted
+      const { isWhitelisted, user: existingUser } = await isUserWhitelisted(
+        firebaseUser.email || ""
+      );
+
+      if (!isWhitelisted) {
+        // User is not whitelisted, sign them out
+        await logout();
+        setError(
+          "Tài khoản của bạn chưa được cấp quyền truy cập. Vui lòng liên hệ quản trị viên."
+        );
+        setSigningIn(false);
       }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Create or update user in Firestore
+      await createOrUpdateUser(
+        firebaseUser.uid,
+        firebaseUser.email || "",
+        firebaseUser.displayName,
+        existingUser?.role || "sale",
+        true
+      );
+
+      // Redirect based on role
+      if (existingUser?.role === "admin") {
+        router.push("/admin");
+      } else {
+        router.push("/dashboard");
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       setError(err.message || "Đã xảy ra lỗi khi đăng nhập");
       setSigningIn(false);
