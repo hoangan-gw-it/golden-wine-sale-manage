@@ -6,6 +6,18 @@ import { signInWithGoogle, logout } from "@/lib/firebase/auth";
 import { isUserWhitelisted, createOrUpdateUser } from "@/lib/firebase/users";
 import { useAuth } from "@/lib/hooks/useAuth";
 
+export const isStrictWebview = () => {
+  if (typeof window === "undefined") return false;
+  const ua = navigator.userAgent;
+  const isAndroidWebview = /Android.*(wv|\.0\.0\.0)/.test(ua);
+  const isIosWebview = /(iPhone|iPod|iPad).*AppleWebKit(?!.*Safari)/i.test(ua);
+  const isInAppBrowser =
+    /FBAN|FBAV|Instagram|Line|TikTok|Zalo|MicroMessenger|Messenger|Snapchat|Pinterest/i.test(
+      ua
+    );
+  return isAndroidWebview || isIosWebview || isInAppBrowser;
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const { firebaseUser, user, loading } = useAuth();
@@ -79,6 +91,24 @@ export default function LoginPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
           <p className="mt-4 text-gray-600">Đang tải...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Block login in in-app browsers
+  if (isStrictWebview()) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50 px-4 overflow-hidden">
+        <div className="max-w-md w-full space-y-6 sm:space-y-8 p-6 sm:p-8 bg-white rounded-lg shadow-md text-center">
+          <div className="text-center">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              Không hỗ trợ trình duyệt này
+            </h2>
+            <p className="mt-4 text-base sm:text-lg text-gray-700">
+              Vui lòng mở bằng trình duyệt web để đăng nhập
+            </p>
+          </div>
         </div>
       </div>
     );

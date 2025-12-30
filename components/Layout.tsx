@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { logout } from "@/lib/firebase/auth";
 import { useAuth } from "@/lib/hooks/useAuth";
@@ -19,6 +20,13 @@ export default function Layout({ children, role }: LayoutProps) {
     router.push("/login");
   };
 
+  // Redirect to login if user is not authenticated
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push("/login");
+    }
+  }, [loading, user, router]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -28,8 +36,11 @@ export default function Layout({ children, role }: LayoutProps) {
   }
 
   if (!user) {
-    router.push("/login");
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+      </div>
+    );
   }
 
   // Check role if specified
@@ -37,8 +48,12 @@ export default function Layout({ children, role }: LayoutProps) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600">Không có quyền truy cập</h1>
-          <p className="mt-2 text-gray-600">Bạn không có quyền truy cập trang này</p>
+          <h1 className="text-2xl font-bold text-red-600">
+            Không có quyền truy cập
+          </h1>
+          <p className="mt-2 text-gray-600">
+            Bạn không có quyền truy cập trang này
+          </p>
           <button
             onClick={() => router.push("/dashboard")}
             className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
@@ -83,4 +98,3 @@ export default function Layout({ children, role }: LayoutProps) {
     </div>
   );
 }
-
