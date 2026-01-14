@@ -14,6 +14,8 @@ export default function Home() {
         // Redirect to appropriate dashboard based on role
         if (user.role === "admin") {
           router.push("/admin");
+        } else if (user.role === "ipos") {
+          router.push("/ipos");
         } else {
           router.push("/dashboard");
         }

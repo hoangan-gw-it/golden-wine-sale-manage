@@ -29,6 +29,8 @@ export default function LoginPage() {
     if (!loading && firebaseUser && user) {
       if (user.role === "admin") {
         router.push("/admin");
+      } else if (user.role === "ipos") {
+        router.push("/ipos");
       } else {
         router.push("/dashboard");
       }
@@ -75,6 +77,8 @@ export default function LoginPage() {
       // Redirect based on role
       if (existingUser?.role === "admin") {
         router.push("/admin");
+      } else if (existingUser?.role === "ipos") {
+        router.push("/ipos");
       } else {
         router.push("/dashboard");
       }

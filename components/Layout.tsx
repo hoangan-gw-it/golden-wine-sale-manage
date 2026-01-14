@@ -72,7 +72,7 @@ export default function Layout({ children, role }: LayoutProps) {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center h-auto sm:h-16 py-3 sm:py-0 gap-3 sm:gap-0">
             <div className="flex items-center">
               <h1 className="text-lg sm:text-xl font-semibold text-gray-900">
-                {user.role === "admin" ? "Quản trị viên" : "Bán hàng"}
+                {user.role === "admin" ? "Quản trị viên" : user.role === "ipos" ? "IPOS" : "Bán hàng"}
               </h1>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full sm:w-auto">
@@ -80,7 +80,7 @@ export default function Layout({ children, role }: LayoutProps) {
                 {user.displayName || user.email}
               </span>
               <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded whitespace-nowrap">
-                {user.role === "admin" ? "Admin" : "Sale"}
+                {user.role === "admin" ? "Admin" : user.role === "ipos" ? "IPOS" : "Sale"}
               </span>
               <button
                 onClick={handleLogout}

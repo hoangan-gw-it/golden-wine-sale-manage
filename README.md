@@ -46,6 +46,7 @@ pnpm install
 ### 2. Thiết lập Firebase
 
 Xem file `FIREBASE_SETUP.md` để biết chi tiết cách:
+
 - Tạo Firebase project
 - Lấy credentials
 - Cấu hình environment variables
@@ -55,12 +56,18 @@ Xem file `FIREBASE_SETUP.md` để biết chi tiết cách:
 Tạo file `.env.local` trong thư mục gốc và thêm Firebase config:
 
 ```env
+# Firebase Configuration
 NEXT_PUBLIC_FIREBASE_API_KEY=your-api-key
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
 NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id
+
+# Shopify Configuration
+SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
+SHOPIFY_STOREFRONT_ACCESS_TOKEN=your-storefront-access-token
+SHOPIFY_ADMIN_ACCESS_TOKEN=your-admin-access-token
 ```
 
 ### 4. Chạy development server
