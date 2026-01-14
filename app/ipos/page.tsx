@@ -176,6 +176,86 @@ export default function IPOSPage() {
     }
   };
 
+  // Normalize customer data from Shopify API response
+  const normalizeCustomerData = (customer: any): ShopifyCustomer => {
+    // Handle both direct customer object and nested customer.customer structure
+    const customerData = customer.customer || customer;
+
+    // Debug: Log raw customer data structure if essential fields are missing
+    if (
+      !customerData.email &&
+      !customerData.phone &&
+      !customerData.first_name &&
+      !customerData.last_name
+    ) {
+      // Check addresses for missing info
+      const firstAddress =
+        customerData.addresses?.[0] || customerData.default_address || {};
+      console.log("⚠️ Customer data missing essential fields. Structure:", {
+        hasEmail: !!customerData.email,
+        hasPhone: !!customerData.phone,
+        hasFirstName: !!customerData.first_name,
+        hasLastName: !!customerData.last_name,
+        hasAddresses: !!customerData.addresses?.length,
+        hasDefaultAddress: !!customerData.default_address,
+        state: customerData.state,
+        availableKeys: Object.keys(customerData),
+        // Check if info is in addresses
+        addressHasEmail: !!firstAddress.email,
+        addressHasPhone: !!firstAddress.phone,
+        addressHasFirstName: !!firstAddress.first_name,
+        addressHasLastName: !!firstAddress.last_name,
+        addressKeys: firstAddress ? Object.keys(firstAddress) : [],
+        // Log full address for debugging
+        firstAddressData: firstAddress,
+      });
+    }
+
+    // Get address data (from addresses array or default_address)
+    const defaultAddress =
+      customerData.default_address || customerData.addresses?.[0] || {};
+    const addresses =
+      customerData.addresses ||
+      (customerData.default_address ? [customerData.default_address] : []);
+
+    // Extract customer info - Shopify REST API may not return email/phone in search results
+    // but should return them in getCustomerById. If still missing, customer might not have this data.
+    const normalized: ShopifyCustomer = {
+      id:
+        customerData.id?.toString() || customerData.admin_graphql_api_id || "",
+      email: customerData.email || defaultAddress.email || "",
+      phone: customerData.phone || defaultAddress.phone || "",
+      first_name:
+        customerData.first_name ||
+        customerData.firstName ||
+        defaultAddress.first_name ||
+        defaultAddress.firstName ||
+        "",
+      last_name:
+        customerData.last_name ||
+        customerData.lastName ||
+        defaultAddress.last_name ||
+        defaultAddress.lastName ||
+        "",
+      company: customerData.company || defaultAddress.company || "",
+      total_spent: customerData.total_spent || customerData.totalSpent || "0",
+      orders_count: customerData.orders_count || customerData.ordersCount || 0,
+      tags: customerData.tags || "",
+      note: customerData.note || "",
+      addresses: addresses.map((addr: any) => ({
+        address1: addr.address1 || "",
+        address2: addr.address2 || "",
+        city: addr.city || "",
+        province: addr.province || "",
+        country: addr.country || "",
+        zip: addr.zip || "",
+        phone: addr.phone || "",
+      })),
+    };
+
+    return normalized;
+  };
+
   const searchCustomers = async (query: string) => {
     if (!query.trim()) {
       setCustomers([]);
@@ -191,11 +271,17 @@ export default function IPOSPage() {
         throw new Error("Failed to search customers");
       }
       const data = await response.json();
-      const foundCustomers = data.customers || [];
-      setCustomers(foundCustomers);
+      const rawCustomers = data.customers || [];
+
+      // Only normalize from search result (don't fetch full details yet)
+      const normalizedCustomers = rawCustomers.map((customer: any) =>
+        normalizeCustomerData(customer)
+      );
+
+      setCustomers(normalizedCustomers);
 
       // Thông báo nếu không tìm thấy
-      if (foundCustomers.length === 0) {
+      if (normalizedCustomers.length === 0) {
         toast.info("Không tìm thấy khách hàng với số điện thoại này");
       }
     } catch (error) {
@@ -208,22 +294,133 @@ export default function IPOSPage() {
 
   const handleCustomerSearch = (value: string) => {
     setCustomerSearch(value);
+    // Clear dropdown when typing (only show after search)
+    setShowCustomerDropdown(false);
+    setCustomers([]);
+  };
 
-    // Clear previous timeout
-    if (customerSearchTimeoutRef.current) {
-      clearTimeout(customerSearchTimeoutRef.current);
+  // Fetch full customer details and select customer
+  const fetchAndSelectCustomer = async (customerId: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/shopify/customers/${customerId}`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch customer details");
+      }
+      const data = await response.json();
+
+      // Debug: Log raw data to see what Shopify returns
+      console.log("Raw customer data from getCustomerById API:", data.customer);
+      console.log("Raw customer data details:", {
+        email: data.customer?.email,
+        phone: data.customer?.phone,
+        first_name: data.customer?.first_name,
+        last_name: data.customer?.last_name,
+        state: data.customer?.state,
+        addresses: data.customer?.addresses,
+        default_address: data.customer?.default_address,
+        // Check if addresses have the info
+        firstAddress: data.customer?.addresses?.[0],
+        defaultAddressKeys: data.customer?.default_address
+          ? Object.keys(data.customer.default_address)
+          : [],
+      });
+
+      const fullCustomer = normalizeCustomerData(data.customer);
+
+      // Debug: Log normalized data
+      console.log("Normalized customer data:", fullCustomer);
+
+      // Check if essential fields are missing
+      if (
+        !fullCustomer.email &&
+        !fullCustomer.phone &&
+        !fullCustomer.first_name &&
+        !fullCustomer.last_name
+      ) {
+        console.warn(
+          "⚠️ Customer data appears to be missing essential fields. This might be due to:"
+        );
+        console.warn(
+          "1. Customer doesn't have this information in Shopify (guest checkout, state: disabled)"
+        );
+        console.warn(
+          "2. API token doesn't have permission to read PII (Personal Identifiable Information)"
+        );
+        console.warn("3. Customer was created as 'disabled' (guest checkout)");
+        console.warn(
+          "4. Customer information needs to be updated in Shopify Admin"
+        );
+
+        // Show user-friendly message
+        toast.warning(
+          "Khách hàng này không có thông tin đầy đủ. Vui lòng điền thông tin thủ công hoặc cập nhật trong Shopify Admin."
+        );
+      }
+
+      handleSelectCustomer(fullCustomer);
+    } catch (error) {
+      console.error("Error fetching customer details:", error);
+      toast.error("Không thể tải thông tin khách hàng");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle search with Enter key or search button
+  const handleCustomerSearchSubmit = async () => {
+    if (!customerSearch.trim() || customerSearch.trim().length < 7) {
+      toast.error("Vui lòng nhập ít nhất 7 chữ số");
+      return;
     }
 
-    // Only search by phone number (at least 7 digits)
-    if (value.trim().length >= 7 && /^\d+$/.test(value.trim())) {
-      // Debounce: wait 500ms after user stops typing
-      customerSearchTimeoutRef.current = setTimeout(() => {
-        searchCustomers(value);
-        setShowCustomerDropdown(true);
-      }, 500);
-    } else {
+    setLoadingCustomers(true);
+    try {
+      // Search for customers
+      const response = await fetch(
+        `/api/shopify/customers/search?q=${encodeURIComponent(customerSearch)}`
+      );
+      if (!response.ok) {
+        throw new Error("Failed to search customers");
+      }
+      const data = await response.json();
+      const rawCustomers = data.customers || [];
+
+      if (rawCustomers.length === 0) {
+        toast.info("Không tìm thấy khách hàng với số điện thoại này");
+        setShowCustomerDropdown(false);
+        setCustomers([]);
+        return;
+      }
+
+      // Only normalize from search result (don't fetch full details for all)
+      // Full details will be fetched when customer is selected
+      const normalizedCustomers = rawCustomers.map((customer: any) =>
+        normalizeCustomerData(customer)
+      );
+
+      setCustomers(normalizedCustomers);
+      setShowCustomerDropdown(true);
+
+      // Auto-select first customer (fetch full details when selecting)
+      if (normalizedCustomers.length > 0) {
+        const firstCustomer = normalizedCustomers[0];
+        // Extract customer ID and fetch full details
+        let customerId = firstCustomer.id;
+        if (customerId.includes("/")) {
+          const parts = customerId.split("/");
+          customerId = parts[parts.length - 1];
+        }
+        if (customerId) {
+          await fetchAndSelectCustomer(customerId);
+        }
+      }
+    } catch (error) {
+      console.error("Error searching customers:", error);
+      toast.error("Không thể tìm kiếm khách hàng");
       setShowCustomerDropdown(false);
-      setCustomers([]);
+    } finally {
+      setLoadingCustomers(false);
     }
   };
 
@@ -245,11 +442,12 @@ export default function IPOSPage() {
             `/api/shopify/customers/search?q=${encodeURIComponent(phone)}`
           );
           if (response.ok) {
-            const data: { customers?: ShopifyCustomer[] } =
-              await response.json();
+            const data: { customers?: any[] } = await response.json();
             if (data.customers && data.customers.length > 0) {
-              // Found existing customer, auto-fill the form
-              const existingCustomer = data.customers[0];
+              // Found existing customer, normalize and auto-fill the form
+              const rawCustomer = data.customers[0];
+              const existingCustomer = normalizeCustomerData(rawCustomer);
+
               setNewCustomer({
                 email: existingCustomer.email || "",
                 phone: existingCustomer.phone || phone,
@@ -267,9 +465,12 @@ export default function IPOSPage() {
                 zip: existingCustomer.addresses?.[0]?.zip || "",
                 note: existingCustomer.note || "",
               });
-              toast.success(
-                `Đã tìm thấy khách hàng: ${existingCustomer.first_name} ${existingCustomer.last_name}`
-              );
+
+              const customerName =
+                `${existingCustomer.first_name || ""} ${
+                  existingCustomer.last_name || ""
+                }`.trim() || "Khách hàng";
+              toast.success(`Đã tìm thấy khách hàng: ${customerName}`);
             } else {
               // Không tìm thấy khách hàng
               toast.info("Không tìm thấy khách hàng với số điện thoại này");
@@ -284,31 +485,46 @@ export default function IPOSPage() {
   };
 
   const handleSelectCustomer = (customer: ShopifyCustomer) => {
-    setSelectedCustomer(customer);
-    setCustomerSearch(customer.phone || "");
+    // Normalize customer data to ensure correct format
+    const normalizedCustomer = normalizeCustomerData(customer);
+
+    setSelectedCustomer(normalizedCustomer);
+    setCustomerSearch(normalizedCustomer.phone || "");
     setShowCustomerDropdown(false);
 
     // Auto-fill form with customer data
     const customerFormData = {
-      email: customer.email || "",
-      phone: customer.phone || "",
-      first_name: customer.first_name || "",
-      last_name: customer.last_name || "",
-      company: customer.company || "",
+      email: normalizedCustomer.email || "",
+      phone: normalizedCustomer.phone || "",
+      first_name: normalizedCustomer.first_name || "",
+      last_name: normalizedCustomer.last_name || "",
+      company: normalizedCustomer.company || "",
       tax_id: "",
       birthday: "",
       gender: "",
-      address: customer.addresses?.[0]?.address1 || "",
-      address2: customer.addresses?.[0]?.address2 || "",
-      city: customer.addresses?.[0]?.city || "",
-      province: customer.addresses?.[0]?.province || "",
-      country: customer.addresses?.[0]?.country || "Vietnam",
-      zip: customer.addresses?.[0]?.zip || "",
-      note: customer.note || "",
+      address: normalizedCustomer.addresses?.[0]?.address1 || "",
+      address2: normalizedCustomer.addresses?.[0]?.address2 || "",
+      city: normalizedCustomer.addresses?.[0]?.city || "",
+      province: normalizedCustomer.addresses?.[0]?.province || "",
+      country: normalizedCustomer.addresses?.[0]?.country || "Vietnam",
+      zip: normalizedCustomer.addresses?.[0]?.zip || "",
+      note: normalizedCustomer.note || "",
     };
     setNewCustomer(customerFormData);
     // Store original data for comparison
     setOriginalCustomerData(customerFormData);
+
+    // Show info message if customer has no essential info
+    if (
+      !normalizedCustomer.email &&
+      !normalizedCustomer.phone &&
+      !normalizedCustomer.first_name &&
+      !normalizedCustomer.last_name
+    ) {
+      toast.info(
+        "Khách hàng này không có thông tin đầy đủ. Vui lòng điền thông tin và cập nhật."
+      );
+    }
   };
 
   // Check if customer data has changed
@@ -1155,12 +1371,29 @@ export default function IPOSPage() {
                   type="tel"
                   value={customerSearch}
                   onChange={(e) => handleCustomerSearch(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleCustomerSearchSubmit();
+                    }
+                  }}
                   onFocus={() => {
                     if (customers.length > 0) setShowCustomerDropdown(true);
                   }}
                   placeholder="Tìm kiếm bằng số điện thoại..."
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
+                <button
+                  onClick={handleCustomerSearchSubmit}
+                  disabled={
+                    loading ||
+                    !customerSearch.trim() ||
+                    customerSearch.trim().length < 7
+                  }
+                  className="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm whitespace-nowrap"
+                >
+                  {loading ? "..." : "Tìm"}
+                </button>
                 <button
                   onClick={() => setShowCustomerModal(true)}
                   className="px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 text-sm whitespace-nowrap"
@@ -1170,29 +1403,60 @@ export default function IPOSPage() {
               </div>
               {showCustomerDropdown && customers.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                  {customers.map((customer) => (
-                    <div
-                      key={customer.id}
-                      onClick={() => handleSelectCustomer(customer)}
-                      className="px-4 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100"
-                    >
-                      <div className="font-medium text-sm">
-                        {customer.first_name} {customer.last_name}
+                  {customers.map((customer) => {
+                    const customerName =
+                      `${customer.first_name || ""} ${
+                        customer.last_name || ""
+                      }`.trim() || "Khách hàng";
+                    return (
+                      <div
+                        key={customer.id}
+                        onClick={async () => {
+                          // Extract customer ID and fetch full details
+                          let customerId = customer.id;
+                          if (customerId.includes("/")) {
+                            const parts = customerId.split("/");
+                            customerId = parts[parts.length - 1];
+                          }
+                          if (customerId) {
+                            await fetchAndSelectCustomer(customerId);
+                          }
+                        }}
+                        className="px-4 py-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100"
+                      >
+                        <div className="font-medium text-sm">
+                          {customerName}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {customer.email && <span>{customer.email}</span>}
+                          {customer.phone && (
+                            <span className="ml-2">{customer.phone}</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-500">
-                        {customer.email && <span>{customer.email}</span>}
-                        {customer.phone && (
-                          <span className="ml-2">{customer.phone}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
             {/* Customer Form - Always visible */}
             <div className="space-y-3 border-t pt-3">
+              {/* Warning message if customer has no info */}
+              {selectedCustomer &&
+                !selectedCustomer.email &&
+                !selectedCustomer.phone &&
+                !selectedCustomer.first_name &&
+                !selectedCustomer.last_name && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-md p-2 mb-3">
+                    <p className="text-xs text-yellow-800">
+                      ⚠️ Khách hàng này không có thông tin đầy đủ trong Shopify
+                      (guest checkout). Vui lòng điền thông tin bên dưới và nhấn
+                      &quot;Cập nhật&quot; để lưu vào Shopify.
+                    </p>
+                  </div>
+                )}
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-medium text-gray-500">

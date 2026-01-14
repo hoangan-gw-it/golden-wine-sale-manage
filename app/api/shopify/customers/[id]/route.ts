@@ -18,6 +18,9 @@ export async function GET(
 
     const data = await getCustomerById(id);
 
+    // Debug: Log raw customer data to help diagnose missing fields
+    console.log("Raw customer data from Shopify API:", JSON.stringify(data.customer, null, 2));
+
     return NextResponse.json(
       {
         customer: data.customer,
