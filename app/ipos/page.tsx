@@ -191,7 +191,13 @@ export default function IPOSPage() {
         throw new Error("Failed to search customers");
       }
       const data = await response.json();
-      setCustomers(data.customers || []);
+      const foundCustomers = data.customers || [];
+      setCustomers(foundCustomers);
+
+      // Thông báo nếu không tìm thấy
+      if (foundCustomers.length === 0) {
+        toast.info("Không tìm thấy khách hàng với số điện thoại này");
+      }
     } catch (error) {
       console.error("Error searching customers:", error);
       toast.error("Không thể tìm kiếm khách hàng");
@@ -264,6 +270,9 @@ export default function IPOSPage() {
               toast.success(
                 `Đã tìm thấy khách hàng: ${existingCustomer.first_name} ${existingCustomer.last_name}`
               );
+            } else {
+              // Không tìm thấy khách hàng
+              toast.info("Không tìm thấy khách hàng với số điện thoại này");
             }
           }
         } catch (error) {
