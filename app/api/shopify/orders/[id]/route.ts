@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateOrder as updateOrderShopify, UpdateOrderInput } from "@/lib/shopify-admin";
-import { updateOrder as updateOrderFirebase } from "@/lib/firebase/orders";
+import { updateOrder as updateOrderFirebase, getOrderById } from "@/lib/firebase/orders";
 
 // PUT /api/shopify/orders/[id] - Cập nhật đơn hàng trong Shopify và Firebase
 export async function PUT(
@@ -25,6 +25,7 @@ export async function PUT(
     };
 
     // Update in Firebase first (since we're using Firebase for orders)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const firebaseUpdates: any = {
       updatedAt: new Date(),
     };
@@ -46,7 +47,39 @@ export async function PUT(
       shopifyData = await updateOrderShopify(id, orderData);
     } catch (shopifyError) {
       // Ignore Shopify errors if order doesn't exist there
-      console.warn("Failed to update Shopify order (may not exist):", shopifyError);
+      console.warn(
+        "Failed to update Shopify order (may not exist):",
+        shopifyError
+      );
+    }
+
+    // If status is being updated to "paid", send invoice email to admin
+    if (orderData.financial_status === "paid") {
+      try {
+        // Get order details
+        const orderDetails = await getOrderById(id);
+        if (orderDetails && !orderDetails.error) {
+          // Send invoice email to admin in background (don't wait for it)
+          const baseUrl =
+            process.env.NEXT_PUBLIC_APP_URL ||
+            (process.env.VERCEL_URL
+              ? `https://${process.env.VERCEL_URL}`
+              : "http://localhost:3000");
+          fetch(`${baseUrl}/api/orders/${id}/send-invoice`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              orderData: orderDetails,
+            }),
+          }).catch((emailError) => {
+            console.error("Failed to send invoice email to admin:", emailError);
+            // Don't fail the request if email fails
+          });
+        }
+      } catch (emailError) {
+        console.error("Error sending invoice email to admin:", emailError);
+        // Don't fail the request if email fails
+      }
     }
 
     // Return Firebase order data

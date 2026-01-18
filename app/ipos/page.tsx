@@ -99,6 +99,7 @@ export default function IPOSPage() {
     "transfer" | "cash" | null
   >("transfer");
   const [cashReceived, setCashReceived] = useState<string>("");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [currentOrder, setCurrentOrder] = useState<any>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [newCustomer, setNewCustomer] = useState({
@@ -181,6 +182,7 @@ export default function IPOSPage() {
   };
 
   // Normalize customer data from Shopify API response
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const normalizeCustomerData = (customer: any): ShopifyCustomer => {
     // Handle both direct customer object and nested customer.customer structure
     const customerData = customer.customer || customer;
@@ -239,6 +241,7 @@ export default function IPOSPage() {
         0,
       tags: customerData.tags || "",
       note: customerData.note || "",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       addresses: addresses.map((addr: any) => ({
         address1: addr.address1 || "",
         address2: addr.address2 || "",
@@ -297,6 +300,7 @@ export default function IPOSPage() {
       const rawCustomers = data.customers || [];
 
       // Only normalize from search result (don't fetch full details yet)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const normalizedCustomers = rawCustomers.map((customer: any) =>
         normalizeCustomerData(customer)
       );
@@ -418,6 +422,7 @@ export default function IPOSPage() {
 
       // Only normalize from search result (don't fetch full details for all)
       // Full details will be fetched when customer is selected
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const normalizedCustomers = rawCustomers.map((customer: any) =>
         normalizeCustomerData(customer)
       );
@@ -465,6 +470,7 @@ export default function IPOSPage() {
             `/api/shopify/customers/search?q=${encodeURIComponent(phone)}`
           );
           if (response.ok) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const data: { customers?: any[] } = await response.json();
             if (data.customers && data.customers.length > 0) {
               // Found existing customer, normalize and auto-fill the form
@@ -632,6 +638,7 @@ export default function IPOSPage() {
       setNewCustomer(updatedFormData);
       setOriginalCustomerData(updatedFormData);
       toast.success("Cập nhật khách hàng thành công!");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       toast.error(error.message || "Không thể cập nhật khách hàng");
     } finally {
@@ -710,6 +717,7 @@ export default function IPOSPage() {
 
       setShowCustomerModal(false);
       toast.success("Tạo khách hàng thành công!");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       toast.error(error.message || "Không thể tạo khách hàng");
     } finally {
@@ -1163,10 +1171,6 @@ export default function IPOSPage() {
 
         toast.success("Đơn hàng đã được tạo! Vui lòng quét QR để thanh toán.");
       } else if (method === "cash") {
-        // Cash payment - cash received is already validated in handlePayment
-        const total = calculateTotal();
-        const received = parseFloat(cashReceived || "0");
-
         // Update order status to paid
         const orderId = orderData.order.id || orderData.order.firebase_order_id;
         if (orderId) {
@@ -1193,6 +1197,7 @@ export default function IPOSPage() {
 
         toast.success("Thanh toán tiền mặt thành công!");
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error("Payment error:", error);
       toast.error(error.message || "Không thể tạo đơn hàng");
@@ -1257,6 +1262,7 @@ export default function IPOSPage() {
       setQrCodeUrl("");
 
       toast.success("Đã cập nhật đơn hàng thành 'Đã thanh toán'!");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error("Error updating order:", error);
       toast.error(error.message || "Không thể cập nhật đơn hàng");
@@ -1349,6 +1355,7 @@ export default function IPOSPage() {
       toast.success(
         "Đã cập nhật đơn hàng thành 'Đã thanh toán' và in hóa đơn!"
       );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error("Error updating order:", error);
       toast.error(error.message || "Không thể cập nhật đơn hàng");
@@ -1451,6 +1458,7 @@ export default function IPOSPage() {
   };
 
   const printInvoice = (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     order: any,
     method: "transfer" | "cash" = "transfer",
     cashReceived: number = 0,
@@ -1477,8 +1485,7 @@ export default function IPOSPage() {
 
     const orderTotal = total || calculateTotal();
     // cashReceived is in VND (string)
-    const received =
-      method === "cash" && cashReceived ? parseFloat(cashReceived) : 0;
+    const received = method === "cash" && cashReceived ? cashReceived : 0;
     const change = Math.max(0, received - orderTotal);
 
     // Calculate total quantity
@@ -1691,6 +1698,9 @@ export default function IPOSPage() {
           }
           <div class="footer">
             <p style="font-style: italic;">Vui lòng kiểm tra sản phẩm thật kỹ khi nhận hàng! Golden Wine sẽ không chịu trách nhiệm đổi trả cho các đơn hàng không thỏa chính sách đổi trả bên cửa hàng.</p>
+            <div class="summary">
+            HẸN GẶP LẠI QUÝ KHÁCH
+            </div>
           </div>
           <script>
             window.onload = function() {
@@ -2309,7 +2319,7 @@ export default function IPOSPage() {
           <div className="bg-white p-4 rounded-lg shadow space-y-3">
             <div>
               <label className="block text-sm font-medium mb-2">
-                Phương thức thanh toán:
+                Phương thức thanh toán
               </label>
               <select
                 value={paymentMethod || ""}
@@ -2391,8 +2401,8 @@ export default function IPOSPage() {
               {loading
                 ? "Đang xử lý..."
                 : currentOrder && currentOrder.financial_status === "paid"
-                ? "Đã thanh toán"
-                : "Thanh toán"}
+                  ? "Đã thanh toán"
+                  : "Thanh toán"}
             </button>
             <button
               onClick={handlePrintInvoice}
