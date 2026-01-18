@@ -95,6 +95,10 @@ export default function IPOSPage() {
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [showInvoiceReview, setShowInvoiceReview] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<
+    "transfer" | "cash" | null
+  >("transfer");
+  const [cashReceived, setCashReceived] = useState<string>("");
   const [currentOrder, setCurrentOrder] = useState<any>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>("");
   const [newCustomer, setNewCustomer] = useState({
@@ -801,6 +805,20 @@ export default function IPOSPage() {
     item: Omit<CartItem, "id" | "quantity">,
     quantity: number = 1
   ) => {
+    // Reset order state when adding new product (new order state)
+    // Only reset if there's an existing order
+    if (currentOrder) {
+      setCurrentOrder(null);
+      setPaymentMethod("transfer");
+      setCashReceived("");
+      setDiscountCode("");
+      setDiscountAmount(0);
+      setDiscountType(null);
+      setDiscountError("");
+      setShowQRModal(false);
+      setQrCodeUrl("");
+    }
+
     const existingItem = cart.find(
       (cartItem) =>
         cartItem.variantId === item.variantId ||
@@ -1010,6 +1028,31 @@ export default function IPOSPage() {
       return;
     }
 
+    if (!paymentMethod) {
+      toast.error("Vui lòng chọn phương thức thanh toán");
+      return;
+    }
+
+    // Validate cash payment
+    if (paymentMethod === "cash") {
+      if (!cashReceived || isNaN(parseFloat(cashReceived))) {
+        toast.error("Vui lòng nhập số tiền khách đưa");
+        return;
+      }
+
+      const received = parseFloat(cashReceived);
+      const total = calculateTotal();
+      if (received < total) {
+        toast.error("Số tiền nhận phải lớn hơn hoặc bằng tổng tiền");
+        return;
+      }
+    }
+
+    // Process payment with selected method
+    await processPayment(paymentMethod);
+  };
+
+  const processPayment = async (method: "transfer" | "cash") => {
     setLoading(true);
 
     try {
@@ -1107,17 +1150,49 @@ export default function IPOSPage() {
         );
       }
 
-      // Generate QR code
-      const total = calculateTotal();
-      const orderNumber = orderData.order.order_number || orderData.order.id;
-      const description = `Don hang ${orderNumber}`;
-      const qrUrl = generateQRCodeUrl(total, description);
-      setQrCodeUrl(qrUrl);
+      if (method === "transfer") {
+        // Bank transfer - Generate QR code for payment
+        const total = calculateTotal();
+        const orderNumber = orderData.order.order_number || orderData.order.id;
+        const description = `Don hang ${orderNumber}`;
+        const qrUrl = generateQRCodeUrl(total, description);
+        setQrCodeUrl(qrUrl);
 
-      // Show QR modal
-      setShowQRModal(true);
+        // Show QR modal
+        setShowQRModal(true);
 
-      toast.success("Đơn hàng đã được tạo! Vui lòng quét QR để thanh toán.");
+        toast.success("Đơn hàng đã được tạo! Vui lòng quét QR để thanh toán.");
+      } else if (method === "cash") {
+        // Cash payment - cash received is already validated in handlePayment
+        const total = calculateTotal();
+        const received = parseFloat(cashReceived || "0");
+
+        // Update order status to paid
+        const orderId = orderData.order.id || orderData.order.firebase_order_id;
+        if (orderId) {
+          try {
+            const updateResponse = await fetch(
+              `/api/shopify/orders/${orderId}`,
+              {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  financial_status: "paid",
+                }),
+              }
+            );
+
+            if (updateResponse.ok) {
+              const updatedOrderData = await updateResponse.json();
+              setCurrentOrder(updatedOrderData.order);
+            }
+          } catch (error) {
+            console.error("Failed to update order status:", error);
+          }
+        }
+
+        toast.success("Thanh toán tiền mặt thành công!");
+      }
     } catch (error: any) {
       console.error("Payment error:", error);
       toast.error(error.message || "Không thể tạo đơn hàng");
@@ -1127,7 +1202,71 @@ export default function IPOSPage() {
   };
 
   const handleCloseQRModal = () => {
-    // Clear cart and reset after payment
+    // Close QR modal but keep order and cart so user can print invoice
+    setShowQRModal(false);
+    setQrCodeUrl("");
+    // Don't clear cart or currentOrder - keep them so user can print invoice
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!currentOrder) return;
+
+    setLoading(true);
+    try {
+      // Extract order ID
+      let orderId: string = "";
+      if (currentOrder.id) {
+        if (
+          typeof currentOrder.id === "string" &&
+          currentOrder.id.includes("/")
+        ) {
+          const parts = currentOrder.id.split("/");
+          orderId = parts[parts.length - 1];
+        } else {
+          orderId = currentOrder.id.toString();
+        }
+      } else if (currentOrder.firebase_order_id) {
+        orderId = currentOrder.firebase_order_id;
+      }
+
+      if (!orderId) {
+        throw new Error("Không tìm thấy ID đơn hàng");
+      }
+
+      // Update order status to paid in Firebase
+      const updateResponse = await fetch(`/api/shopify/orders/${orderId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          financial_status: "paid",
+        }),
+      });
+
+      if (!updateResponse.ok) {
+        const error = await updateResponse.json();
+        throw new Error(
+          error.error || "Không thể cập nhật trạng thái đơn hàng"
+        );
+      }
+
+      const updatedOrderData = await updateResponse.json();
+      setCurrentOrder(updatedOrderData.order);
+
+      // Close QR modal
+      setShowQRModal(false);
+      setQrCodeUrl("");
+
+      toast.success("Đã cập nhật đơn hàng thành 'Đã thanh toán'!");
+    } catch (error: any) {
+      console.error("Error updating order:", error);
+      toast.error(error.message || "Không thể cập nhật đơn hàng");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // New function to clear everything after order is completed
+  const handleClearOrder = () => {
     setCart([]);
     setSelectedCustomer(null);
     setCustomerSearch("");
@@ -1135,9 +1274,8 @@ export default function IPOSPage() {
     setDiscountAmount(0);
     setDiscountType(null);
     setDiscountError("");
-    setShowQRModal(false);
     setCurrentOrder(null);
-    setQrCodeUrl("");
+    setShowInvoiceReview(false);
   };
 
   const handlePrintInvoice = () => {
@@ -1145,7 +1283,12 @@ export default function IPOSPage() {
       toast.error("Không có đơn hàng để in");
       return;
     }
-    setShowInvoiceReview(true);
+
+    // Print invoice directly with current payment method and cash info
+    const method = paymentMethod || "transfer";
+    const received = method === "cash" ? parseFloat(cashReceived || "0") : 0;
+    const orderTotal = calculateTotal();
+    printInvoice(currentOrder, method, received, orderTotal);
   };
 
   const handleConfirmPrint = async () => {
@@ -1193,11 +1336,15 @@ export default function IPOSPage() {
       const updatedOrderData = await updateResponse.json();
       setCurrentOrder(updatedOrderData.order);
 
-      // Print invoice
-      printInvoice(updatedOrderData.order);
+      // Print invoice (default to QR method, but can be updated based on payment method)
+      const method = paymentMethod || "transfer";
+      const received =
+        method === "cash" ? parseFloat(cashReceived || "0") * 100 : 0;
+      const orderTotal = calculateTotal();
+      printInvoice(updatedOrderData.order, method, received, orderTotal);
 
-      // Close review modal
-      setShowInvoiceReview(false);
+      // Keep modal open so user can print again if needed
+      // Don't close modal - user can close manually
 
       toast.success(
         "Đã cập nhật đơn hàng thành 'Đã thanh toán' và in hóa đơn!"
@@ -1210,7 +1357,105 @@ export default function IPOSPage() {
     }
   };
 
-  const printInvoice = (order: any) => {
+  // Helper function to convert number to Vietnamese words
+  const numberToVietnameseWords = (num: number): string => {
+    const ones = [
+      "",
+      "một",
+      "hai",
+      "ba",
+      "bốn",
+      "năm",
+      "sáu",
+      "bảy",
+      "tám",
+      "chín",
+    ];
+    const tens = [
+      "",
+      "mười",
+      "hai mươi",
+      "ba mươi",
+      "bốn mươi",
+      "năm mươi",
+      "sáu mươi",
+      "bảy mươi",
+      "tám mươi",
+      "chín mươi",
+    ];
+    const hundreds = [
+      "",
+      "một trăm",
+      "hai trăm",
+      "ba trăm",
+      "bốn trăm",
+      "năm trăm",
+      "sáu trăm",
+      "bảy trăm",
+      "tám trăm",
+      "chín trăm",
+    ];
+
+    if (num === 0) return "không";
+
+    let result = "";
+
+    // Millions
+    const millions = Math.floor(num / 1000000);
+    if (millions > 0) {
+      result += hundreds[Math.floor(millions / 100)];
+      const remaining = millions % 100;
+      if (remaining > 0) {
+        result += " " + tens[Math.floor(remaining / 10)];
+        if (remaining % 10 > 0) {
+          result += " " + ones[remaining % 10];
+        }
+      }
+      result += " triệu ";
+    }
+
+    // Thousands
+    const thousands = Math.floor((num % 1000000) / 1000);
+    if (thousands > 0) {
+      result += hundreds[Math.floor(thousands / 100)];
+      const remaining = thousands % 100;
+      if (remaining > 0) {
+        result += " " + tens[Math.floor(remaining / 10)];
+        if (remaining % 10 > 0) {
+          result += " " + ones[remaining % 10];
+        }
+      }
+      result += " nghìn ";
+    }
+
+    // Hundreds
+    const hundredsPlace = Math.floor((num % 1000) / 100);
+    if (hundredsPlace > 0) {
+      result += hundreds[hundredsPlace] + " ";
+    }
+
+    // Tens and ones
+    const tensOnes = num % 100;
+    if (tensOnes > 0) {
+      if (tensOnes < 10) {
+        result += ones[tensOnes];
+      } else {
+        result += tens[Math.floor(tensOnes / 10)];
+        if (tensOnes % 10 > 0) {
+          result += " " + ones[tensOnes % 10];
+        }
+      }
+    }
+
+    return result.trim() + " đồng ./.";
+  };
+
+  const printInvoice = (
+    order: any,
+    method: "transfer" | "cash" = "transfer",
+    cashReceived: number = 0,
+    total: number = 0
+  ) => {
     if (!order) {
       toast.error("Không có đơn hàng để in");
       return;
@@ -1221,6 +1466,27 @@ export default function IPOSPage() {
       toast.error("Không thể mở cửa sổ in. Vui lòng cho phép popup.");
       return;
     }
+
+    // Shop information (can be moved to config later)
+    const shopName = "GOLDEN WINE";
+    const shopAddress =
+      "Địa chỉ:  80/59/116 Dương Quảng Hàm, Phường An Nhơn, TP. Hồ Chí Minh, Việt Nam";
+    const shopPhone = "Di động: 0354160919";
+    const shopEmail = "Email: marketing@goldenwine.vn";
+    const shopWebsite = "Website: goldenwine.vn";
+
+    const orderTotal = total || calculateTotal();
+    // cashReceived is in VND (string)
+    const received =
+      method === "cash" && cashReceived ? parseFloat(cashReceived) : 0;
+    const change = Math.max(0, received - orderTotal);
+
+    // Calculate total quantity
+    const totalQuantity = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("vi-VN");
+    const timeStr = now.toLocaleTimeString("vi-VN");
 
     const invoiceHTML = `
       <!DOCTYPE html>
@@ -1233,47 +1499,98 @@ export default function IPOSPage() {
               max-width: 80mm;
               margin: 0 auto;
               padding: 10px;
+              font-size: 12px;
             }
             .header {
               text-align: center;
-              border-bottom: 2px solid #000;
-              padding-bottom: 10px;
               margin-bottom: 10px;
             }
             .header h1 {
-              margin: 0;
-              font-size: 18px;
+              margin: 5px 0;
+              font-size: 16px;
+              font-weight: bold;
+            }
+            .shop-info {
+              text-align: center;
+              font-size: 11px;
+              margin-bottom: 10px;
             }
             .info {
               margin: 10px 0;
-              font-size: 12px;
+              font-size: 11px;
+              border-bottom: 1px dashed #000;
+              padding-bottom: 10px;
             }
             .info p {
-              margin: 5px 0;
+              margin: 3px 0;
+            }
+            .items-header {
+              display: flex;
+              justify-content: space-between;
+              font-size: 11px;
+              font-weight: bold;
+              margin: 10px 0 5px 0;
+              border-bottom: 1px solid #000;
+              padding-bottom: 3px;
             }
             .items {
-              margin: 10px 0;
-              border-top: 1px dashed #000;
-              border-bottom: 1px dashed #000;
-              padding: 10px 0;
+              margin: 5px 0;
+              font-size: 11px;
             }
             .item {
               display: flex;
               justify-content: space-between;
-              margin: 5px 0;
-              font-size: 12px;
+              margin: 3px 0;
             }
-            .total {
-              margin-top: 10px;
+            .item-name {
+              flex: 1;
+            }
+            .item-qty {
+              width: 30px;
+              text-align: center;
+            }
+            .item-price {
+              width: 70px;
               text-align: right;
+            }
+            .item-total {
+              width: 80px;
+              text-align: right;
+            }
+            .summary {
+              margin-top: 10px;
+              font-size: 11px;
+              border-top: 1px dashed #000;
+              padding-top: 5px;
+            }
+            .summary-row {
+              display: flex;
+              justify-content: space-between;
+              margin: 3px 0;
+            }
+            .payment-info {
+              margin-top: 10px;
+              font-size: 11px;
+              border-top: 1px solid #000;
+              padding-top: 5px;
+            }
+            .payment-row {
+              display: flex;
+              justify-content: space-between;
+              margin: 3px 0;
               font-weight: bold;
-              font-size: 14px;
+            }
+            .amount-in-words {
+              margin-top: 5px;
+              font-size: 10px;
+              font-style: italic;
             }
             .footer {
-              margin-top: 20px;
-              text-align: center;
+              margin-top: 15px;
+              text-align: justify;
               font-size: 10px;
-              color: #666;
+              border-top: 1px dashed #000;
+              padding-top: 10px;
             }
             @media print {
               body {
@@ -1287,45 +1604,93 @@ export default function IPOSPage() {
           <div class="header">
             <h1>HÓA ĐƠN BÁN HÀNG</h1>
           </div>
+          <div class="shop-info">
+            <div style="font-weight: bold; margin-bottom: 3px;">${shopName}</div>
+            <div>${shopAddress}</div>
+            <div>${shopPhone}</div>
+            <div>${shopEmail}</div>
+            <div>${shopWebsite}</div>
+          </div>
           <div class="info">
-            <p><strong>Mã đơn:</strong> ${
-              order.order_number || order.id || "N/A"
-            }</p>
-            <p><strong>Ngày:</strong> ${new Date().toLocaleString("vi-VN")}</p>
-            <p><strong>Khách hàng:</strong> ${
-              selectedCustomer?.first_name || ""
-            } ${selectedCustomer?.last_name || ""} ${
-      selectedCustomer?.email || selectedCustomer?.phone || ""
-    }</p>
-            <p><strong>Nhân viên:</strong> ${
-              user?.displayName || user?.email || ""
-            }</p>
+            <p><strong>SỐ HĐ:</strong> ${String(
+              order.order_number || order.id || ""
+            ).padStart(4, "0")}</p>
+            <p><strong>Ngày in:</strong> ${dateStr} <strong>Giờ in:</strong> ${timeStr}</p>
+          </div>
+          <div class="items-header">
+            <span class="item-name">SẢN PHẨM</span>
+            <span class="item-qty">SL</span>
+            <span class="item-price">Đơn Giá</span>
+            <span class="item-total">T. TIỀN</span>
           </div>
           <div class="items">
             ${cart
               .map(
-                (item) => `
+                (item, index) => `
               <div class="item">
-                <span>${item.productTitle} x${item.quantity}</span>
-                <span>${formatCurrency(item.price * item.quantity)}</span>
+                <span class="item-name">${index + 1}) ${
+                  item.productTitle
+                }</span>
+                <span class="item-qty">${item.quantity}</span>
+                <span class="item-price">${formatCurrency(item.price)}</span>
+                <span class="item-total">${formatCurrency(
+                  item.price * item.quantity
+                )}</span>
               </div>
             `
               )
               .join("")}
           </div>
-          <div class="total">
+          <div class="summary">
+            <div class="summary-row">
+              <span><strong>T. Cộng:</strong> ${totalQuantity}</span>
+              <span><strong>${formatCurrency(orderTotal)}</strong></span>
+            </div>
+            <div class="amount-in-words">
+              ${numberToVietnameseWords(Math.round(orderTotal))}
+              </div>
+          </div>
+          ${
+            method === "cash"
+              ? `
+          <div class="payment-info">
+           <div class="payment-row">
+              <span>HÌNH THỨC:</span>
+              <span>Tiền mặt</span>
+            </div>
+            <div class="payment-row">
+              <span>TIỀN NHẬN:</span>
+              <span>${formatCurrency(received)}</span>
+            </div>
+            <div class="amount-in-words">
+              ${numberToVietnameseWords(Math.round(received))}
+            </div>
             ${
-              discountAmount > 0
+              change > 0
                 ? `
-            <p>Tạm tính: ${formatCurrency(calculateSubtotal())}</p>
-            <p>Giảm giá: -${formatCurrency(calculateDiscount())}</p>
+            <div class="payment-row" style="color: #0066cc;">
+              <span>TIỀN THỪA:</span>
+              <span>${formatCurrency(change)}</span>
+            </div>
+            <div class="amount-in-words">
+              ${numberToVietnameseWords(Math.round(change))}
+            </div>
             `
                 : ""
             }
-            <p>Tổng cộng: ${formatCurrency(calculateTotal())}</p>
           </div>
+          `
+              : `
+              <div class="payment-info">
+            <div class="payment-row">
+              <span>HÌNH THỨC:</span>
+              <span>Chuyển khoản</span>
+            </div>
+            </div>
+            `
+          }
           <div class="footer">
-            <p>Cảm ơn quý khách!</p>
+            <p style="font-style: italic;">Vui lòng kiểm tra sản phẩm thật kỹ khi nhận hàng! Golden Wine sẽ không chịu trách nhiệm đổi trả cho các đơn hàng không thỏa chính sách đổi trả bên cửa hàng.</p>
           </div>
           <script>
             window.onload = function() {
@@ -1940,14 +2305,94 @@ export default function IPOSPage() {
             )}
           </div>
 
+          {/* Payment Method Selection */}
+          <div className="bg-white p-4 rounded-lg shadow space-y-3">
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Phương thức thanh toán:
+              </label>
+              <select
+                value={paymentMethod || ""}
+                onChange={(e) => {
+                  const method = e.target.value as "transfer" | "cash" | "";
+                  setPaymentMethod(method || null);
+                  if (method === "cash") {
+                    // Set default cash received to total
+                    const total = calculateTotal();
+                    setCashReceived(Math.ceil(total / 1000) * 1000 + "");
+                  } else {
+                    setCashReceived("");
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="transfer">Chuyển khoản</option>
+                <option value="cash">Tiền mặt</option>
+              </select>
+            </div>
+
+            {/* Cash Amount Input - Only show when cash is selected */}
+            {paymentMethod === "cash" && (
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Số tiền khách đưa (VNĐ):
+                </label>
+                <input
+                  type="number"
+                  value={cashReceived}
+                  onChange={(e) => setCashReceived(e.target.value)}
+                  placeholder="Nhập số tiền..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {cashReceived && !isNaN(parseFloat(cashReceived)) && (
+                  <div className="mt-2 text-sm">
+                    <div className="text-gray-600">
+                      Tổng tiền:{" "}
+                      <strong>{formatCurrency(calculateTotal())}</strong>
+                    </div>
+                    {parseFloat(cashReceived) >= calculateTotal() && (
+                      <div className="text-green-600 font-semibold mt-1">
+                        Tiền thừa:{" "}
+                        {formatCurrency(
+                          parseFloat(cashReceived) - calculateTotal()
+                        )}
+                      </div>
+                    )}
+                    {parseFloat(cashReceived) < calculateTotal() && (
+                      <div className="text-red-600 font-semibold mt-1">
+                        Còn thiếu:{" "}
+                        {formatCurrency(
+                          calculateTotal() - parseFloat(cashReceived)
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Payment and Print Buttons */}
           <div className="flex gap-2">
             <button
               onClick={handlePayment}
-              disabled={loading || cart.length === 0}
+              disabled={
+                loading ||
+                cart.length === 0 ||
+                !paymentMethod ||
+                (paymentMethod === "cash" &&
+                  (!cashReceived ||
+                    isNaN(parseFloat(cashReceived)) ||
+                    parseFloat(cashReceived) < calculateTotal())) ||
+                (currentOrder && currentOrder.financial_status === "paid")
+              }
               className="flex-1 px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold text-lg"
             >
-              {loading ? "Đang xử lý..." : "Thanh toán"}
+              {loading
+                ? "Đang xử lý..."
+                : currentOrder && currentOrder.financial_status === "paid"
+                ? "Đã thanh toán"
+                : "Thanh toán"}
             </button>
             <button
               onClick={handlePrintInvoice}
@@ -1957,6 +2402,35 @@ export default function IPOSPage() {
               In hóa đơn
             </button>
           </div>
+
+          {/* Cancel/Complete Button */}
+          {currentOrder && (
+            <div className="mt-2">
+              <button
+                onClick={
+                  currentOrder.financial_status === "paid"
+                    ? handleClearOrder
+                    : () => {
+                        setCart([]);
+                        setCustomerSearch("");
+                        setDiscountCode("");
+                        setDiscountAmount(0);
+                        setDiscountType(null);
+                        setDiscountError("");
+                        setCashReceived("");
+                        setCurrentOrder(null);
+                      }
+                }
+                className={`w-full px-6 py-3 text-white rounded-lg font-semibold text-lg ${
+                  currentOrder.financial_status === "paid"
+                    ? "bg-green-500 hover:bg-green-600"
+                    : "bg-red-500 hover:bg-red-600"
+                }`}
+              >
+                {currentOrder.financial_status === "paid" ? "Hoàn tất" : "Hủy"}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* QR Code Modal */}
@@ -1979,12 +2453,21 @@ export default function IPOSPage() {
                       Mã đơn: {currentOrder.order_number || currentOrder.id}
                     </p>
                   </div>
-                  <button
-                    onClick={handleCloseQRModal}
-                    className="w-full px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-semibold"
-                  >
-                    Đã thanh toán
-                  </button>
+                  <div className="flex gap-2 w-full">
+                    <button
+                      onClick={handleCloseQRModal}
+                      className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                    >
+                      Hủy
+                    </button>
+                    <button
+                      onClick={handleConfirmPayment}
+                      disabled={loading}
+                      className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                      {loading ? "Đang xử lý..." : "Đã thanh toán"}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="text-center text-red-500">

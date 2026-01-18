@@ -53,7 +53,9 @@ export interface FirebaseCustomer {
 }
 
 // Create or update customer in Firebase (using Shopify ID as document ID)
-export const saveCustomer = async (customer: Omit<FirebaseCustomer, "createdAt" | "updatedAt">) => {
+export const saveCustomer = async (
+  customer: Omit<FirebaseCustomer, "createdAt" | "updatedAt">
+) => {
   const customerId = customer.id || customer.shopify_id || "";
   if (!customerId) {
     return { id: null, error: "Customer ID is required" };
@@ -61,15 +63,13 @@ export const saveCustomer = async (customer: Omit<FirebaseCustomer, "createdAt" 
 
   try {
     // Use setDocument to create or update with Shopify ID as document ID
-    const result = await setDocument<Omit<FirebaseCustomer, "createdAt" | "updatedAt">>(
-      CUSTOMERS_COLLECTION,
-      customerId,
-      {
-        ...customer,
-        id: customerId,
-        shopify_id: customerId,
-      }
-    );
+    const result = await setDocument<
+      Omit<FirebaseCustomer, "createdAt" | "updatedAt">
+    >(CUSTOMERS_COLLECTION, customerId, {
+      ...customer,
+      id: customerId,
+      shopify_id: customerId,
+    });
 
     if (result.error) {
       return { id: null, error: result.error };
@@ -101,12 +101,12 @@ export const searchCustomersByPhone = async (phone: string) => {
 
   for (const phoneVar of normalizedPhones) {
     if (!phoneVar) continue;
-    
+
     try {
-      const result = await getDocuments<FirebaseCustomer>(CUSTOMERS_COLLECTION, [
-        where("phone", "==", phoneVar),
-        limit(50),
-      ]);
+      const result = await getDocuments<FirebaseCustomer>(
+        CUSTOMERS_COLLECTION,
+        [where("phone", "==", phoneVar), limit(50)]
+      );
 
       if (result.data) {
         for (const customer of result.data) {
@@ -142,7 +142,7 @@ export const searchCustomersByEmail = async (email: string) => {
 // Search customers by name
 export const searchCustomersByName = async (name: string) => {
   const searchTerm = name.toLowerCase().trim();
-  
+
   try {
     // Get all customers and filter by name (Firestore doesn't support case-insensitive search)
     const result = await getDocuments<FirebaseCustomer>(CUSTOMERS_COLLECTION, [
@@ -154,7 +154,7 @@ export const searchCustomersByName = async (name: string) => {
         const firstName = (customer.first_name || "").toLowerCase();
         const lastName = (customer.last_name || "").toLowerCase();
         const fullName = `${firstName} ${lastName}`.trim();
-        
+
         return (
           firstName.includes(searchTerm) ||
           lastName.includes(searchTerm) ||
@@ -174,10 +174,10 @@ export const searchCustomersByName = async (name: string) => {
 // General search (tries phone, email, and name)
 export const searchCustomers = async (query: string) => {
   const trimmedQuery = query.trim();
-  
+
   // Check if it's a phone number
   const isPhoneNumber = /^[\d\s+()-]+$/.test(trimmedQuery);
-  
+
   // Check if it's an email
   const isEmail = trimmedQuery.includes("@");
 
