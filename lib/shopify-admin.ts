@@ -1,6 +1,9 @@
 const domain = process.env.SHOPIFY_STORE_DOMAIN;
 const adminAccessToken = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
 
+// GraphQL endpoint for Shopify Admin API
+const GRAPHQL_ENDPOINT = `https://${domain}/admin/api/2024-01/graphql.json`;
+
 interface ShopifyAdminFetchOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   endpoint: string;
@@ -91,6 +94,297 @@ function normalizePhoneNumber(phone: string): string[] {
   return [...new Set(variations)];
 }
 
+// GraphQL query to search customers by phone
+export async function searchCustomersByPhoneGraphQL(phone: string) {
+  if (!domain || !adminAccessToken) {
+    throw new Error(
+      "Shopify Admin credentials are not configured. Please set SHOPIFY_STORE_DOMAIN and SHOPIFY_ADMIN_ACCESS_TOKEN in your environment variables."
+    );
+  }
+
+  // Normalize phone number for GraphQL query
+  const normalizedPhone = phone.trim().replace(/[^\d+]/g, "");
+  const phoneQuery = normalizedPhone.startsWith("+")
+    ? `phone:${normalizedPhone}`
+    : `phone:+84${normalizedPhone.replace(/^0/, "")}`;
+
+  const query = `
+    query searchCustomers($query: String!) {
+      customers(first: 50, query: $query) {
+        edges {
+          node {
+            id
+            firstName
+            lastName
+            phone
+            email
+            tags
+            note
+            numberOfOrders
+            state
+            defaultAddress {
+              id
+              firstName
+              lastName
+              phone
+              address1
+              address2
+              city
+              province
+              country
+              zip
+              company
+            }
+            addresses(first: 10) {
+              id
+              firstName
+              lastName
+              phone
+              address1
+              address2
+              city
+              province
+              country
+              zip
+              company
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const response = await fetch(GRAPHQL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": adminAccessToken,
+      },
+      body: JSON.stringify({
+        query,
+        variables: {
+          query: phoneQuery,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Failed to fetch Shopify GraphQL data: ${response.status} ${response.statusText} - ${errorText}`
+      );
+    }
+
+    const data = await response.json();
+
+    if (data.errors) {
+      throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
+    }
+
+    // Transform GraphQL response to match REST API format
+    const customers = data.data.customers.edges.map((edge: any) => {
+      const node = edge.node;
+      // addresses is an array, not a connection with edges
+      const addressesArray = Array.isArray(node.addresses)
+        ? node.addresses
+        : node.addresses?.edges?.map((addrEdge: any) => addrEdge.node) || [];
+
+      return {
+        id: node.id.split("/").pop(), // Extract numeric ID from GID
+        admin_graphql_api_id: node.id,
+        email: node.email || null,
+        phone: node.phone || null,
+        first_name: node.firstName || null,
+        last_name: node.lastName || null,
+        company: node.defaultAddress?.company || null,
+        tags: node.tags || "",
+        note: node.note || "",
+        total_spent: "0", // Calculate from orders if needed
+        orders_count: node.numberOfOrders || 0,
+        state: node.state || "enabled",
+        default_address: node.defaultAddress
+          ? {
+              id: node.defaultAddress.id?.split("/").pop(),
+              firstName: node.defaultAddress.firstName,
+              lastName: node.defaultAddress.lastName,
+              phone: node.defaultAddress.phone,
+              address1: node.defaultAddress.address1,
+              address2: node.defaultAddress.address2,
+              city: node.defaultAddress.city,
+              province: node.defaultAddress.province,
+              country: node.defaultAddress.country,
+              zip: node.defaultAddress.zip,
+              company: node.defaultAddress.company,
+            }
+          : null,
+        addresses: addressesArray.map((addr: any) => ({
+          id: addr.id?.split("/").pop(),
+          firstName: addr.firstName,
+          lastName: addr.lastName,
+          phone: addr.phone,
+          address1: addr.address1,
+          address2: addr.address2,
+          city: addr.city,
+          province: addr.province,
+          country: addr.country,
+          zip: addr.zip,
+          company: addr.company,
+        })),
+      };
+    });
+
+    return { customers };
+  } catch (error) {
+    console.error("Shopify GraphQL fetch error:", error);
+    throw error;
+  }
+}
+
+// Get customer by ID using GraphQL
+export async function getCustomerByIdGraphQL(customerId: string) {
+  if (!domain || !adminAccessToken) {
+    throw new Error(
+      "Shopify Admin credentials are not configured. Please set SHOPIFY_STORE_DOMAIN and SHOPIFY_ADMIN_ACCESS_TOKEN in your environment variables."
+    );
+  }
+
+  // Convert numeric ID to GID format if needed
+  const gid = customerId.includes("gid://")
+    ? customerId
+    : `gid://shopify/Customer/${customerId}`;
+
+  const query = `
+    query getCustomer($id: ID!) {
+      customer(id: $id) {
+        id
+        firstName
+        lastName
+        phone
+        email
+        tags
+        note
+        numberOfOrders
+        state
+        defaultAddress {
+          id
+          firstName
+          lastName
+          phone
+          address1
+          address2
+          city
+          province
+          country
+          zip
+          company
+        }
+        addresses(first: 10) {
+          id
+          firstName
+          lastName
+          phone
+          address1
+          address2
+          city
+          province
+          country
+          zip
+          company
+        }
+      }
+    }
+  `;
+
+  try {
+    const response = await fetch(GRAPHQL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": adminAccessToken,
+      },
+      body: JSON.stringify({
+        query,
+        variables: {
+          id: gid,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Failed to fetch Shopify GraphQL data: ${response.status} ${response.statusText} - ${errorText}`
+      );
+    }
+
+    const data = await response.json();
+
+    if (data.errors) {
+      throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
+    }
+
+    if (!data.data.customer) {
+      throw new Error("Customer not found");
+    }
+
+    // Transform GraphQL response to match REST API format
+    const node = data.data.customer;
+    // addresses is an array, not a connection with edges
+    const addressesArray = Array.isArray(node.addresses)
+      ? node.addresses
+      : node.addresses?.edges?.map((addrEdge: any) => addrEdge.node) || [];
+
+    const customer = {
+      id: node.id.split("/").pop(), // Extract numeric ID from GID
+      admin_graphql_api_id: node.id,
+      email: node.email || null,
+      phone: node.phone || null,
+      first_name: node.firstName || null,
+      last_name: node.lastName || null,
+      company: node.defaultAddress?.company || null,
+      tags: node.tags || "",
+      note: node.note || "",
+      total_spent: "0", // Calculate from orders if needed
+      orders_count: node.numberOfOrders || 0,
+      state: node.state || "enabled",
+      default_address: node.defaultAddress
+        ? {
+            id: node.defaultAddress.id?.split("/").pop(),
+            firstName: node.defaultAddress.firstName,
+            lastName: node.defaultAddress.lastName,
+            phone: node.defaultAddress.phone,
+            address1: node.defaultAddress.address1,
+            address2: node.defaultAddress.address2,
+            city: node.defaultAddress.city,
+            province: node.defaultAddress.province,
+            country: node.defaultAddress.country,
+            zip: node.defaultAddress.zip,
+            company: node.defaultAddress.company,
+          }
+        : null,
+      addresses: addressesArray.map((addr: any) => ({
+        id: addr.id?.split("/").pop(),
+        firstName: addr.firstName,
+        lastName: addr.lastName,
+        phone: addr.phone,
+        address1: addr.address1,
+        address2: addr.address2,
+        city: addr.city,
+        province: addr.province,
+        country: addr.country,
+        zip: addr.zip,
+        company: addr.company,
+      })),
+    };
+
+    return { customer };
+  } catch (error) {
+    console.error("Shopify GraphQL fetch error:", error);
+    throw error;
+  }
+}
+
 // Search customers by query (email, phone, name)
 export async function searchCustomers(query: string) {
   // If query looks like a phone number (contains only digits, +, spaces, parentheses, dashes)
@@ -138,6 +432,62 @@ export async function searchCustomers(query: string) {
 export async function getCustomerById(customerId: string) {
   const endpoint = `customers/${customerId}.json`;
   return await shopifyAdminFetch({ endpoint });
+}
+
+// Get customer info from Orders API (fallback when Customer API doesn't return PII)
+export async function getCustomerInfoFromOrders(customerId: string) {
+  try {
+    // Search for orders by customer ID
+    const endpoint = `orders.json?customer_id=${customerId}&limit=1&status=any`;
+    const data = await shopifyAdminFetch({ endpoint });
+    
+    if (!data.orders || data.orders.length === 0) {
+      return null; // No orders found
+    }
+
+    // Get the most recent order
+    const order = data.orders[0];
+    const billingAddress = order.billing_address || order.shipping_address || {};
+    
+    // Extract customer info from order
+    const customerInfo: any = {
+      id: customerId,
+      email: order.email || billingAddress.email || null,
+      phone: order.phone || billingAddress.phone || null,
+      first_name: billingAddress.first_name || null,
+      last_name: billingAddress.last_name || null,
+      company: billingAddress.company || null,
+      default_address: billingAddress ? {
+        firstName: billingAddress.first_name,
+        lastName: billingAddress.last_name,
+        phone: billingAddress.phone,
+        address1: billingAddress.address1,
+        address2: billingAddress.address2,
+        city: billingAddress.city,
+        province: billingAddress.province,
+        country: billingAddress.country,
+        zip: billingAddress.zip,
+        company: billingAddress.company,
+      } : null,
+      addresses: billingAddress ? [{
+        firstName: billingAddress.first_name,
+        lastName: billingAddress.last_name,
+        phone: billingAddress.phone,
+        address1: billingAddress.address1,
+        address2: billingAddress.address2,
+        city: billingAddress.city,
+        province: billingAddress.province,
+        country: billingAddress.country,
+        zip: billingAddress.zip,
+        company: billingAddress.company,
+      }] : [],
+    };
+
+    return customerInfo;
+  } catch (error) {
+    console.error("Error fetching customer info from orders:", error);
+    return null;
+  }
 }
 
 // Create customer

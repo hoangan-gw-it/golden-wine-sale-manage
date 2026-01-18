@@ -181,65 +181,58 @@ export default function IPOSPage() {
     // Handle both direct customer object and nested customer.customer structure
     const customerData = customer.customer || customer;
 
-    // Debug: Log raw customer data structure if essential fields are missing
-    if (
-      !customerData.email &&
-      !customerData.phone &&
-      !customerData.first_name &&
-      !customerData.last_name
-    ) {
-      // Check addresses for missing info
-      const firstAddress =
-        customerData.addresses?.[0] || customerData.default_address || {};
-      console.log("⚠️ Customer data missing essential fields. Structure:", {
-        hasEmail: !!customerData.email,
-        hasPhone: !!customerData.phone,
-        hasFirstName: !!customerData.first_name,
-        hasLastName: !!customerData.last_name,
-        hasAddresses: !!customerData.addresses?.length,
-        hasDefaultAddress: !!customerData.default_address,
-        state: customerData.state,
-        availableKeys: Object.keys(customerData),
-        // Check if info is in addresses
-        addressHasEmail: !!firstAddress.email,
-        addressHasPhone: !!firstAddress.phone,
-        addressHasFirstName: !!firstAddress.first_name,
-        addressHasLastName: !!firstAddress.last_name,
-        addressKeys: firstAddress ? Object.keys(firstAddress) : [],
-        // Log full address for debugging
-        firstAddressData: firstAddress,
-      });
-    }
-
     // Get address data (from addresses array or default_address)
+    // Handle both REST API (snake_case) and GraphQL (camelCase) formats for addresses
     const defaultAddress =
       customerData.default_address || customerData.addresses?.[0] || {};
     const addresses =
       customerData.addresses ||
       (customerData.default_address ? [customerData.default_address] : []);
 
-    // Extract customer info - Shopify REST API may not return email/phone in search results
-    // but should return them in getCustomerById. If still missing, customer might not have this data.
+    // Helper function to get value from address in both formats (snake_case and camelCase)
+    const getAddressField = (snakeCaseField: string) => {
+      // Convert snake_case to camelCase: first_name -> firstName
+      const camelCaseField = snakeCaseField.replace(/_([a-z])/g, (_, c) =>
+        c.toUpperCase()
+      );
+      return (
+        defaultAddress[snakeCaseField] || // snake_case (REST API)
+        defaultAddress[camelCaseField] || // camelCase (GraphQL addresses)
+        ""
+      );
+    };
+
+    // Extract customer info - Handle both REST API (snake_case) and GraphQL (camelCase) formats
+    // GraphQL returns firstName, lastName, totalSpent, numberOfOrders
+    // REST API returns first_name, last_name, total_spent, orders_count
     const normalized: ShopifyCustomer = {
       id:
-        customerData.id?.toString() || customerData.admin_graphql_api_id || "",
-      email: customerData.email || defaultAddress.email || "",
-      phone: customerData.phone || defaultAddress.phone || "",
+        customerData.id?.toString() ||
+        customerData.admin_graphql_api_id?.split("/").pop() ||
+        "",
+      email: customerData.email || getAddressField("email") || "",
+      phone: customerData.phone || getAddressField("phone") || "",
       first_name:
         customerData.first_name ||
         customerData.firstName ||
-        defaultAddress.first_name ||
-        defaultAddress.firstName ||
+        getAddressField("first_name") ||
         "",
       last_name:
         customerData.last_name ||
         customerData.lastName ||
-        defaultAddress.last_name ||
-        defaultAddress.lastName ||
+        getAddressField("last_name") ||
         "",
-      company: customerData.company || defaultAddress.company || "",
-      total_spent: customerData.total_spent || customerData.totalSpent || "0",
-      orders_count: customerData.orders_count || customerData.ordersCount || 0,
+      company: customerData.company || getAddressField("company") || "",
+      total_spent:
+        customerData.total_spent ||
+        customerData.totalSpent?.amount ||
+        customerData.totalSpent ||
+        "0",
+      orders_count:
+        customerData.orders_count ||
+        customerData.ordersCount ||
+        customerData.numberOfOrders ||
+        0,
       tags: customerData.tags || "",
       note: customerData.note || "",
       addresses: addresses.map((addr: any) => ({
@@ -252,6 +245,32 @@ export default function IPOSPage() {
         phone: addr.phone || "",
       })),
     };
+
+    // Debug: Log if essential fields are still missing after normalization
+    if (
+      !normalized.email &&
+      !normalized.phone &&
+      !normalized.first_name &&
+      !normalized.last_name
+    ) {
+      console.log(
+        "⚠️ Customer data missing essential fields after normalization. Raw data structure:",
+        {
+          hasEmail: !!customerData.email,
+          hasPhone: !!customerData.phone,
+          hasFirstName: !!customerData.first_name,
+          hasLastName: !!customerData.last_name,
+          hasFirstNameCamel: !!customerData.firstName,
+          hasLastNameCamel: !!customerData.lastName,
+          hasAddresses: !!customerData.addresses?.length,
+          hasDefaultAddress: !!customerData.default_address,
+          state: customerData.state,
+          availableKeys: Object.keys(customerData),
+          defaultAddressKeys: defaultAddress ? Object.keys(defaultAddress) : [],
+          rawCustomerData: customerData,
+        }
+      );
+    }
 
     return normalized;
   };
@@ -991,22 +1010,23 @@ export default function IPOSPage() {
       return;
     }
 
-    if (!selectedCustomer) {
-      toast.error("Vui lòng chọn hoặc tạo khách hàng");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      // Create order in Shopify
+      // Create order in Firebase
       const lineItems = cart.map((item) => {
-        // Extract numeric ID from Shopify GID format (gid://shopify/ProductVariant/123456)
-        let variantId: number | undefined;
+        // Extract IDs from Shopify GID format (gid://shopify/ProductVariant/123456 or gid://shopify/Product/123456)
+        let variantId: string | undefined;
+        let productId: string | undefined;
+
         if (item.variantId) {
-          const parts = item.variantId.split("/");
-          const idPart = parts[parts.length - 1];
-          variantId = parseInt(idPart) || undefined;
+          const variantParts = item.variantId.split("/");
+          variantId = variantParts[variantParts.length - 1];
+        }
+
+        if (item.productId) {
+          const productParts = item.productId.split("/");
+          productId = productParts[productParts.length - 1];
         }
 
         return {
@@ -1014,16 +1034,22 @@ export default function IPOSPage() {
           quantity: item.quantity,
           price: (item.price / 100).toFixed(2), // Convert to decimal
           sku: item.sku,
+          product_id: productId || variantId, // Use product_id if available, otherwise variant_id
           variant_id: variantId,
         };
       });
 
-      // Extract customer ID from Shopify GID format
-      let customerId: number | undefined;
-      if (selectedCustomer.id) {
-        const parts = selectedCustomer.id.split("/");
-        const idPart = parts[parts.length - 1];
-        customerId = parseInt(idPart) || undefined;
+      // Extract customer ID (can be numeric string or GID format) - optional
+      let customerId: string = "guest";
+      if (selectedCustomer?.id) {
+        if (selectedCustomer.id.includes("/")) {
+          // GID format: extract numeric part
+          const parts = selectedCustomer.id.split("/");
+          customerId = parts[parts.length - 1];
+        } else {
+          // Already numeric string
+          customerId = selectedCustomer.id;
+        }
       }
 
       const orderResponse = await fetch("/api/shopify/orders/create", {
@@ -1033,10 +1059,10 @@ export default function IPOSPage() {
           line_items: lineItems,
           customer: {
             id: customerId,
-            email: selectedCustomer.email,
-            first_name: selectedCustomer.first_name,
-            last_name: selectedCustomer.last_name,
-            phone: selectedCustomer.phone,
+            email: selectedCustomer?.email || "",
+            first_name: selectedCustomer?.first_name || "",
+            last_name: selectedCustomer?.last_name || "",
+            phone: selectedCustomer?.phone || "",
           },
           financial_status: "pending", // Changed to pending, will be paid after QR payment
           note: `IPOS Order - ${user?.displayName || user?.email}`,
@@ -1056,12 +1082,14 @@ export default function IPOSPage() {
                   },
                 ]
               : undefined,
+          created_by: user?.id || "",
+          created_by_name: user?.displayName || user?.email || "",
         }),
       });
 
       if (!orderResponse.ok) {
         const error = await orderResponse.json();
-        throw new Error(error.error || "Failed to create order in Shopify");
+        throw new Error(error.error || "Failed to create order");
       }
 
       const orderData = await orderResponse.json();
@@ -1916,7 +1944,7 @@ export default function IPOSPage() {
           <div className="flex gap-2">
             <button
               onClick={handlePayment}
-              disabled={loading || cart.length === 0 || !selectedCustomer}
+              disabled={loading || cart.length === 0}
               className="flex-1 px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold text-lg"
             >
               {loading ? "Đang xử lý..." : "Thanh toán"}
