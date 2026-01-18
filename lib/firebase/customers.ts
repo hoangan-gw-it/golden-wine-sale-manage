@@ -6,6 +6,7 @@ import {
   setDocument,
   where,
   orderBy,
+  limit,
   Timestamp,
 } from "./firestore";
 
