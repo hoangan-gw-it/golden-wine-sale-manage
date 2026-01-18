@@ -33,11 +33,23 @@ export async function POST(
     }
 
     // Get order details if not provided
-    const order = orderData || (await getOrderById(id));
+    const orderResult = orderData || (await getOrderById(id));
 
-    if (!order || order.error) {
+    // Handle both direct order data and wrapped response from getOrderById
+    const order = orderResult?.data || orderResult;
+
+    if (!order || (orderResult && orderResult.error)) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
+
+    // Debug: Log order data to check line_items
+    console.log("Order data for email:", {
+      id: order.id,
+      line_items_count: order.line_items?.length || 0,
+      line_items: order.line_items,
+      total_price: order.total_price,
+      subtotal_price: order.subtotal_price,
+    });
 
     // Generate invoice HTML
     const invoiceHTML = generateInvoiceHTML(order);
@@ -63,21 +75,45 @@ export async function POST(
   }
 }
 
+// Helper function to convert Firebase Timestamp to Date
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function convertTimestampToDate(timestamp: any): Date {
+  if (!timestamp) return new Date();
+  // Firebase Timestamp has toDate() method
+  if (timestamp.toDate && typeof timestamp.toDate === "function") {
+    return timestamp.toDate();
+  }
+  // If it's already a Date or timestamp number
+  if (timestamp instanceof Date) {
+    return timestamp;
+  }
+  // If it's a number (milliseconds)
+  if (typeof timestamp === "number") {
+    return new Date(timestamp);
+  }
+  // If it's an object with seconds/nanoseconds (Firestore Timestamp structure)
+  if (timestamp.seconds) {
+    return new Date(timestamp.seconds * 1000);
+  }
+  // Try to parse as date string
+  return new Date(timestamp);
+}
+
 // Generate invoice HTML from order data (for admin summary)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function generateInvoiceHTML(order: any): string {
   const orderNumber = order.order_number || order.id || "";
   const orderDate = order.createdAt
-    ? new Date(order.createdAt).toLocaleString("vi-VN")
+    ? convertTimestampToDate(order.createdAt).toLocaleString("vi-VN")
     : new Date().toLocaleString("vi-VN");
   const paidDate = order.updatedAt
-    ? new Date(order.updatedAt).toLocaleString("vi-VN")
+    ? convertTimestampToDate(order.updatedAt).toLocaleString("vi-VN")
     : new Date().toLocaleString("vi-VN");
 
   const lineItems = order.line_items || [];
-  const totalPrice = parseFloat(order.total_price || "0") / 100; // Convert cents to VND
-  const subtotalPrice =
-    parseFloat(order.subtotal_price || order.total_price || "0") / 100;
+  // Firebase stores prices in VND (not cents), so no need to divide by 100
+  const totalPrice = parseFloat(order.total_price || "0");
+  const subtotalPrice = parseFloat(order.subtotal_price || order.total_price || "0");
 
   // Calculate total quantity
   const totalQuantity = lineItems.reduce(

@@ -1083,7 +1083,7 @@ export default function IPOSPage() {
         return {
           title: item.productTitle,
           quantity: item.quantity,
-          price: (item.price / 100).toFixed(2), // Convert to decimal
+          price: item.price.toString(), // Already in VND, no conversion needed
           sku: item.sku,
           product_id: productId || variantId, // Use product_id if available, otherwise variant_id
           variant_id: variantId,
@@ -1344,8 +1344,7 @@ export default function IPOSPage() {
 
       // Print invoice (default to QR method, but can be updated based on payment method)
       const method = paymentMethod || "transfer";
-      const received =
-        method === "cash" ? parseFloat(cashReceived || "0") * 100 : 0;
+      const received = method === "cash" ? parseFloat(cashReceived || "0") : 0; // Already in VND, no conversion needed
       const orderTotal = calculateTotal();
       printInvoice(updatedOrderData.order, method, received, orderTotal);
 
@@ -2075,7 +2074,7 @@ export default function IPOSPage() {
                     <div className="text-xs text-gray-500">
                       Tổng chi tiêu:{" "}
                       {formatCurrency(
-                        parseFloat(selectedCustomer.total_spent) * 100
+                        parseFloat(selectedCustomer.total_spent) // Already in VND, no conversion needed
                       )}
                     </div>
                   )}
@@ -2401,8 +2400,8 @@ export default function IPOSPage() {
               {loading
                 ? "Đang xử lý..."
                 : currentOrder && currentOrder.financial_status === "paid"
-                  ? "Đã thanh toán"
-                  : "Thanh toán"}
+                ? "Đã thanh toán"
+                : "Thanh toán"}
             </button>
             <button
               onClick={handlePrintInvoice}
