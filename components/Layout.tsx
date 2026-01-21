@@ -68,7 +68,7 @@ export default function Layout({ children, role }: LayoutProps) {
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full px-3 sm:px-6 lg:px-10">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center h-auto sm:h-16 py-3 sm:py-0 gap-3 sm:gap-0">
             <div className="flex items-center">
               <h1 className="text-lg sm:text-xl font-semibold text-gray-900">
@@ -92,7 +92,7 @@ export default function Layout({ children, role }: LayoutProps) {
           </div>
         </div>
       </nav>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+      <main className="w-full px-3 sm:px-6 lg:px-10 py-4 sm:py-8">
         {children}
       </main>
     </div>

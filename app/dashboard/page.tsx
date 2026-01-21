@@ -38,6 +38,8 @@ export default function DashboardPage() {
   const [salesRecords, setSalesRecords] = useState<any[]>([]);
   const [productSearch, setProductSearch] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   useEffect(() => {
     if (user) {
@@ -138,6 +140,7 @@ export default function DashboardPage() {
     console.log("Sales records result:", { data, error });
     if (!error && data) {
       setSalesRecords(data);
+      setPage(1); // Reset to first page when loading new data
     } else if (error) {
       console.error("Error loading sales records:", error);
     }
@@ -209,6 +212,25 @@ export default function DashboardPage() {
     const d = date.toDate ? date.toDate() : new Date(date);
     return d.toLocaleString("vi-VN");
   };
+
+  const getApprovalLabel = (record: any) => {
+    const status = record.approvalStatus || "approved";
+    switch (status) {
+      case "pending":
+        return { text: "Chờ admin duyệt", color: "text-yellow-600" };
+      case "rejected":
+        return { text: "Đã từ chối", color: "text-red-600" };
+      case "approved":
+      default:
+        return { text: "Đã duyệt", color: "text-green-600" };
+    }
+  };
+
+  const totalPages = Math.max(1, Math.ceil(salesRecords.length / pageSize));
+  const paginatedRecords = salesRecords.slice(
+    (page - 1) * pageSize,
+    page * pageSize
+  );
 
   // Helper to get local date string
   const getLocalDateString = (date: Date = new Date()): string => {
@@ -486,20 +508,23 @@ export default function DashboardPage() {
                   <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Tổng tiền
                   </th>
+                  <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Trạng thái
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {salesRecords.length === 0 ? (
+                {paginatedRecords.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-4 lg:px-6 py-4 text-center text-gray-500"
                     >
                       Chưa có dữ liệu
                     </td>
                   </tr>
                 ) : (
-                  salesRecords.map((record) => (
+                  paginatedRecords.map((record) => (
                     <tr key={record.id}>
                       <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {formatDate(record.createdAt)}
@@ -516,6 +541,22 @@ export default function DashboardPage() {
                       <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
                         {formatCurrency(record.totalAmount)}
                       </td>
+                      <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
+                        {(() => {
+                          const { text, color } = getApprovalLabel(record);
+                          return (
+                            <span className={`font-medium ${color}`}>
+                              {text}
+                              {record.approvalStatus === "rejected" &&
+                                record.approvalNote && (
+                                  <span className="block text-xs text-gray-500 mt-1">
+                                    Lý do: {record.approvalNote}
+                                  </span>
+                                )}
+                            </span>
+                          );
+                        })()}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -525,12 +566,12 @@ export default function DashboardPage() {
 
           {/* Mobile Card View */}
           <div className="md:hidden divide-y divide-gray-200">
-            {salesRecords.length === 0 ? (
+            {paginatedRecords.length === 0 ? (
               <div className="px-4 py-8 text-center text-gray-500">
                 Chưa có dữ liệu
               </div>
             ) : (
-              salesRecords.map((record) => (
+              paginatedRecords.map((record) => (
                 <div key={record.id} className="p-4 space-y-2">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
@@ -556,11 +597,72 @@ export default function DashboardPage() {
                       <span className="font-medium">Giá:</span>{" "}
                       {formatCurrency(record.price)}
                     </div>
+                    <div className="col-span-2">
+                      <span className="font-medium">Trạng thái:</span>{" "}
+                      {(() => {
+                        const { text, color } = getApprovalLabel(record);
+                        return (
+                          <span className={`font-medium ${color}`}>
+                            {text}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    {record.approvalStatus === "rejected" &&
+                      record.approvalNote && (
+                        <div className="col-span-2 text-red-600">
+                          <span className="font-medium">Lý do:</span>{" "}
+                          {record.approvalNote}
+                        </div>
+                      )}
                   </div>
                 </div>
               ))
             )}
           </div>
+          {/* Pagination */}
+          {salesRecords.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-gray-200 bg-white">
+              <div className="text-sm text-gray-600">
+                Trang {page}/{totalPages} · {salesRecords.length} đơn
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Trước
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">Trang:</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max={totalPages}
+                    value={page}
+                    onChange={(e) => {
+                      const newPage = parseInt(e.target.value);
+                      if (!isNaN(newPage) && newPage >= 1 && newPage <= totalPages) {
+                        setPage(newPage);
+                      }
+                    }}
+                    className="w-16 px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-600">/ {totalPages}</span>
+                </div>
+                <button
+                  onClick={() =>
+                    setPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={page === totalPages}
+                  className="px-3 py-1 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Sau
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </Layout>

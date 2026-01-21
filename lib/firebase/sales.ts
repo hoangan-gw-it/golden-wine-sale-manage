@@ -43,6 +43,7 @@ export const createSalesRecord = async (
     date,
     createdAt: new Date(),
     updatedAt: new Date(),
+    approvalStatus: "pending",
   };
 
   return await addDocument<Omit<SalesRecord, "id">>(
@@ -125,7 +126,7 @@ export const getSalesRecordsForWeek = async () => {
 // Update sales record
 export const updateSalesRecord = async (
   recordId: string,
-  data: Partial<Pick<SalesRecord, "productName" | "quantity" | "price">>
+  data: Partial<SalesRecord>
 ) => {
   const updates: any = { ...data, updatedAt: new Date() };
 

@@ -9,12 +9,15 @@ import {
   getSalesRecordsByDateRange,
   getSalesRecordsBySalesPerson,
 } from "@/lib/firebase/sales";
+import { updateSalesRecord } from "@/lib/firebase/sales";
 import { getAllUsers } from "@/lib/firebase/users";
 import { SalesRecord } from "@/lib/types";
 import { User } from "@/lib/types";
 import * as XLSX from "xlsx";
+import { useAuth } from "@/lib/hooks/useAuth";
 
 export default function AdminPage() {
+  const { user } = useAuth();
   const [salesRecords, setSalesRecords] = useState<SalesRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<"all" | "today" | "week" | "custom">(
@@ -25,6 +28,9 @@ export default function AdminPage() {
   const [dateFilter, setDateFilter] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("");
   const [employees, setEmployees] = useState<User[]>([]);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   // Helper function to get date string from record (handles both date field and createdAt)
   const getRecordDateString = (record: SalesRecord): string => {
@@ -59,6 +65,16 @@ export default function AdminPage() {
   useEffect(() => {
     loadEmployees();
     loadSalesRecords();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto refresh every 1 minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadSalesRecords();
+    }, 60_000);
+
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -173,6 +189,7 @@ export default function AdminPage() {
 
         if (!result.error && result.data) {
           setSalesRecords(result.data);
+          setPage(1);
         }
       }
     } catch (err) {
@@ -285,6 +302,66 @@ export default function AdminPage() {
     (sum, record) => sum + (record.quantity || 0),
     0
   );
+
+  const totalPages = Math.max(1, Math.ceil(salesRecords.length / pageSize));
+  const paginatedRecords = salesRecords.slice(
+    (page - 1) * pageSize,
+    page * pageSize
+  );
+
+  const getApprovalLabel = (record: SalesRecord) => {
+    const status = record.approvalStatus || "approved";
+    switch (status) {
+      case "pending":
+        return { text: "Chờ admin duyệt", color: "text-yellow-600" };
+      case "rejected":
+        return { text: "Đã từ chối", color: "text-red-600" };
+      case "approved":
+      default:
+        return { text: "Đã duyệt", color: "text-green-600" };
+    }
+  };
+
+  const handleApprove = async (record: SalesRecord) => {
+    if (!user) return;
+    setActionLoadingId(record.id);
+    try {
+      await updateSalesRecord(record.id, {
+        approvalStatus: "approved",
+        approvalNote: "",
+        approvedBy: user.id,
+        approvedByName: user.displayName || user.email || "Admin",
+        approvedAt: new Date(),
+      });
+      await loadSalesRecords();
+    } catch (err) {
+      console.error("Error approving record:", err);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleReject = async (record: SalesRecord) => {
+    if (!user) return;
+    const reason = window.prompt("Nhập lý do từ chối đơn này:");
+    if (!reason) return;
+
+    setActionLoadingId(record.id);
+    try {
+      await updateSalesRecord(record.id, {
+        approvalStatus: "rejected",
+        approvalNote: reason,
+        approvedBy: user.id,
+        approvedByName: user.displayName || user.email || "Admin",
+        approvedAt: new Date(),
+      });
+      await loadSalesRecords();
+    } catch (err) {
+      console.error("Error rejecting record:", err);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
 
   return (
     <Layout role="admin">
@@ -491,10 +568,16 @@ export default function AdminPage() {
                       <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Tổng tiền
                       </th>
+                      <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Trạng thái
+                      </th>
+                      <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Thao tác
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {salesRecords.length === 0 ? (
+                    {paginatedRecords.length === 0 ? (
                       <tr>
                         <td
                           colSpan={8}
@@ -504,7 +587,7 @@ export default function AdminPage() {
                         </td>
                       </tr>
                     ) : (
-                      salesRecords.map((record) => {
+                      paginatedRecords.map((record) => {
                         const priceDiff = record.originalPrice
                           ? record.price - record.originalPrice
                           : null;
@@ -553,6 +636,48 @@ export default function AdminPage() {
                             <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
                               {formatCurrency(record.totalAmount)}
                             </td>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
+                              {(() => {
+                                const { text, color } = getApprovalLabel(record);
+                                return (
+                                  <span className={`font-medium ${color}`}>
+                                    {text}
+                                    {record.approvalStatus === "rejected" &&
+                                      record.approvalNote && (
+                                        <span className="block text-xs text-gray-500 mt-1">
+                                          Lý do: {record.approvalNote}
+                                        </span>
+                                      )}
+                                  </span>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm space-x-2">
+                              {record.approvalStatus === "pending" ? (
+                                <>
+                                  <button
+                                    onClick={() => handleApprove(record)}
+                                    disabled={actionLoadingId === record.id}
+                                    className="px-3 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                                  >
+                                    {actionLoadingId === record.id
+                                      ? "Đang duyệt..."
+                                      : "Xác nhận"}
+                                  </button>
+                                  <button
+                                    onClick={() => handleReject(record)}
+                                    disabled={actionLoadingId === record.id}
+                                    className="px-3 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                                  >
+                                    Từ chối
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="text-xs text-gray-400">
+                                  Đã xử lý
+                                </span>
+                              )}
+                            </td>
                           </tr>
                         );
                       })
@@ -563,12 +688,12 @@ export default function AdminPage() {
 
               {/* Mobile Card View */}
               <div className="md:hidden divide-y divide-gray-200">
-                {salesRecords.length === 0 ? (
+                {paginatedRecords.length === 0 ? (
                   <div className="px-4 py-8 text-center text-gray-500">
                     Chưa có dữ liệu
                   </div>
                 ) : (
-                  salesRecords.map((record) => {
+                  paginatedRecords.map((record) => {
                     const priceDiff = record.originalPrice
                       ? record.price - record.originalPrice
                       : null;
@@ -629,11 +754,96 @@ export default function AdminPage() {
                                 : "-"}
                             </span>
                           </div>
+                          <div className="col-span-2">
+                            <span className="font-medium">Trạng thái:</span>{" "}
+                            {(() => {
+                              const { text, color } = getApprovalLabel(record);
+                              return (
+                                <span className={`font-medium ${color}`}>
+                                  {text}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                          {record.approvalStatus === "rejected" &&
+                            record.approvalNote && (
+                              <div className="col-span-2 text-red-600">
+                                <span className="font-medium">Lý do:</span>{" "}
+                                {record.approvalNote}
+                              </div>
+                            )}
+                          <div className="col-span-2 flex gap-2 mt-1">
+                            {record.approvalStatus === "pending" ? (
+                              <>
+                                <button
+                                  onClick={() => handleApprove(record)}
+                                  disabled={actionLoadingId === record.id}
+                                  className="px-3 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                                >
+                                  {actionLoadingId === record.id
+                                    ? "Đang duyệt..."
+                                    : "Xác nhận"}
+                                </button>
+                                <button
+                                  onClick={() => handleReject(record)}
+                                  disabled={actionLoadingId === record.id}
+                                  className="px-3 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                                >
+                                  Từ chối
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-400">
+                                Đã xử lý
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
                   })
                 )}
+              </div>
+              {/* Pagination */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-gray-200 bg-white">
+                <div className="text-sm text-gray-600">
+                  Trang {page}/{totalPages} · {salesRecords.length} đơn
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-3 py-1 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Trước
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">Trang:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={totalPages}
+                      value={page}
+                      onChange={(e) => {
+                        const newPage = parseInt(e.target.value);
+                        if (!isNaN(newPage) && newPage >= 1 && newPage <= totalPages) {
+                          setPage(newPage);
+                        }
+                      }}
+                      className="w-16 px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-600">/ {totalPages}</span>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setPage((p) => Math.min(totalPages, p + 1))
+                    }
+                    disabled={page === totalPages}
+                    className="px-3 py-1 text-sm rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Sau
+                  </button>
+                </div>
               </div>
             </>
           )}

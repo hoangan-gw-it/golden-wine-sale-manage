@@ -22,4 +22,10 @@ export interface SalesRecord {
   createdAt: Date;
   updatedAt: Date;
   date: string; // YYYY-MM-DD format for easy querying
+  // Trạng thái duyệt đơn cho luồng sale -> admin
+  approvalStatus?: "pending" | "approved" | "rejected";
+  approvalNote?: string;
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: Date;
 }
