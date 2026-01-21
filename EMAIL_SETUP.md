@@ -50,6 +50,7 @@ EMAIL_PASSWORD=abcd efgh ijkl mnop  # Hoặc: abcdefghijklmnop
 EMAIL_FROM=noreply@goldenwine.vn  # Email hiển thị là người gửi
 ADMIN_EMAIL=admin@goldenwine.vn  # Email nhận hóa đơn
 
+
 # Optional: Explicit SMTP config (nếu muốn chỉ định rõ)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587

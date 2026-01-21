@@ -129,6 +129,41 @@ function generateInvoiceHTML(order: any): string {
     }).format(amount);
   };
 
+  const formatPaymentInfo = () => {
+    const method = String(order.payment_method || "").toLowerCase();
+    if (method === "cash") {
+      const received = parseFloat(order.cash_received || "0");
+      return `Tiền mặt${
+        !isNaN(received) && received > 0
+          ? ` (khách đưa: ${formatCurrency(received)})`
+          : ""
+      }`;
+    }
+    if (method === "transfer") return "Chuyển khoản";
+    return "Chưa rõ";
+  };
+
+  const formatDiscountLabel = () => {
+    const discounts = order.discount_codes || [];
+    if (!discounts || discounts.length === 0) return "";
+
+    const labels: string[] = [];
+
+    for (const dc of discounts) {
+      const code = String(dc.code || "").trim();
+      if (code.toUpperCase() === "DIRECT") {
+        labels.push("trực tiếp");
+      } else if (code) {
+        labels.push(`mã: ${code}`);
+      } else {
+        labels.push("giảm giá");
+      }
+    }
+
+    // remove duplicates
+    return Array.from(new Set(labels)).join(", ");
+  };
+
   return `
     <!DOCTYPE html>
     <html>
@@ -234,6 +269,7 @@ function generateInvoiceHTML(order: any): string {
             <p><strong>Mã đơn hàng:</strong> ${String(orderNumber).padStart(4, "0")}</p>
             <p><strong>Ngày tạo đơn:</strong> ${orderDate}</p>
             <p><strong>Ngày thanh toán:</strong> ${paidDate}</p>
+            <p><strong>Hình thức thanh toán:</strong> ${formatPaymentInfo()}</p>
             <p><strong>Trạng thái:</strong> <span style="color: #28a745; font-weight: bold;">ĐÃ THANH TOÁN</span></p>
             ${
               order.created_by_name
@@ -302,7 +338,7 @@ function generateInvoiceHTML(order: any): string {
               order.discount_codes && order.discount_codes.length > 0
                 ? `
             <div class="total-row" style="color: #dc3545;">
-              <span>Giảm giá: -${formatCurrency(
+              <span>Giảm giá (${formatDiscountLabel()}): -${formatCurrency(
                 calculateDiscount(order)
               )}</span>
             </div>
@@ -326,9 +362,49 @@ function generateInvoiceHTML(order: any): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function calculateDiscount(order: any): number {
-  if (!order.discount_codes || order.discount_codes.length === 0) return 0;
-  // Implement discount calculation if needed
-  return 0;
+  // Ưu tiên lấy theo subtotal_price và total_price đã được tính sẵn
+  const subtotalFromOrder = parseFloat(order.subtotal_price || "0");
+  const totalFromOrder = parseFloat(
+    order.total_price || order.subtotal_price || "0"
+  );
+
+  if (subtotalFromOrder > 0 && subtotalFromOrder >= totalFromOrder) {
+    return Math.max(0, subtotalFromOrder - totalFromOrder);
+  }
+
+  // Fallback: tự tính lại dựa trên line_items và discount_codes
+  const lineItems = order.line_items || [];
+  let subtotal = 0;
+
+  for (const item of lineItems) {
+    const price = parseFloat(item.price || "0");
+    const quantity = parseInt(item.quantity || "0");
+    subtotal += price * quantity;
+  }
+
+  let totalPrice = subtotal;
+
+  if (order.discount_codes && order.discount_codes.length > 0) {
+    for (const discount of order.discount_codes) {
+      const type = discount.type;
+      const rawAmount = String(discount.amount || "0");
+
+      if (type === "percentage") {
+        const percentage = parseFloat(rawAmount.replace("%", ""));
+        if (!isNaN(percentage) && percentage > 0) {
+          totalPrice = totalPrice * (1 - percentage / 100);
+        }
+      } else {
+        // fixed / fixed_amount
+        const amount = parseFloat(rawAmount.replace(/[^\d.-]/g, ""));
+        if (!isNaN(amount) && amount > 0) {
+          totalPrice = Math.max(0, totalPrice - amount);
+        }
+      }
+    }
+  }
+
+  return Math.max(0, subtotal - totalPrice);
 }
 
 // Send invoice email using Nodemailer

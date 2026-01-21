@@ -12,6 +12,8 @@ export async function POST(request: NextRequest) {
       fulfillment_status, 
       note,
       discount_codes,
+      payment_method,
+      cash_received,
       created_by,
       created_by_name,
     } = body;
@@ -103,6 +105,11 @@ export async function POST(request: NextRequest) {
       currency: "VND",
       financial_status: financial_status || "pending",
       note: note || "",
+      payment_method: payment_method || undefined,
+      cash_received:
+        payment_method === "cash" && cash_received !== undefined
+          ? cash_received?.toString()
+          : undefined,
       created_by: created_by || "",
       created_by_name: created_by_name || "",
     };

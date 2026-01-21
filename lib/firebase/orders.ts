@@ -34,6 +34,8 @@ export interface FirebaseOrder {
   financial_status?: string;
   fulfillment_status?: string;
   note?: string;
+  payment_method?: "transfer" | "cash";
+  cash_received?: string;
   created_by?: string; // User ID who created the order
   created_by_name?: string;
   createdAt: Date;

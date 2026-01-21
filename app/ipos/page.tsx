@@ -119,11 +119,12 @@ export default function IPOSPage() {
     zip: "",
     note: "",
   });
+  const [discountMode, setDiscountMode] = useState<"code" | "direct">("direct");
   const [discountCode, setDiscountCode] = useState("");
   const [discountAmount, setDiscountAmount] = useState(0);
   const [discountType, setDiscountType] = useState<
     "percentage" | "fixed" | null
-  >(null);
+  >("fixed");
   const [discountError, setDiscountError] = useState("");
   const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>(
     {}
@@ -972,10 +973,10 @@ export default function IPOSPage() {
         if (priceRule) {
           if (priceRule.value_type === "percentage") {
             setDiscountType("percentage");
-            setDiscountAmount(parseFloat(priceRule.value || "0"));
+            setDiscountAmount(Math.abs(parseFloat(priceRule.value || "0")));
           } else {
             setDiscountType("fixed");
-            setDiscountAmount(parseFloat(priceRule.value || "0"));
+            setDiscountAmount(Math.abs(parseFloat(priceRule.value || "0")));
           }
         }
       } else {
@@ -1116,12 +1117,14 @@ export default function IPOSPage() {
             phone: selectedCustomer?.phone || "",
           },
           financial_status: "pending", // Changed to pending, will be paid after QR payment
+          payment_method: method,
+          cash_received: method === "cash" ? cashReceived : undefined,
           note: `IPOS Order - ${user?.displayName || user?.email}`,
           discount_codes:
-            discountCode && discountAmount > 0
+            discountAmount > 0 && discountType
               ? [
                   {
-                    code: discountCode,
+                    code: discountMode === "code" ? discountCode : "DIRECT",
                     amount:
                       discountType === "percentage"
                         ? `${discountAmount}%`
@@ -1276,12 +1279,14 @@ export default function IPOSPage() {
     setCart([]);
     setSelectedCustomer(null);
     setCustomerSearch("");
+    setDiscountMode("direct");
     setDiscountCode("");
     setDiscountAmount(0);
-    setDiscountType(null);
+    setDiscountType("fixed");
     setDiscountError("");
     setCurrentOrder(null);
     setShowInvoiceReview(false);
+    setCashReceived("");
   };
 
   const handlePrintInvoice = () => {
@@ -2251,29 +2256,111 @@ export default function IPOSPage() {
                 ))}
                 {/* Discount Code */}
                 <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="flex gap-2 mb-3">
-                    <input
-                      type="text"
-                      value={discountCode}
-                      onChange={(e) => {
-                        setDiscountCode(e.target.value);
-                        if (e.target.value.trim() === "") {
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-sm font-medium text-gray-700">
+                      Giảm giá:
+                    </span>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="discountMode"
+                        checked={discountMode === "code"}
+                        onChange={() => {
+                          setDiscountMode("code");
                           setDiscountAmount(0);
                           setDiscountType(null);
                           setDiscountError("");
-                        }
-                      }}
-                      onBlur={handleValidateDiscount}
-                      placeholder="Nhập mã giảm giá..."
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      onClick={handleValidateDiscount}
-                      className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"
-                    >
-                      Áp dụng
-                    </button>
+                        }}
+                      />
+                      Mã giảm giá
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="discountMode"
+                        checked={discountMode === "direct"}
+                        onChange={() => {
+                          setDiscountMode("direct");
+                          setDiscountCode("");
+                          setDiscountAmount(0);
+                          setDiscountType("fixed");
+                          setDiscountError("");
+                        }}
+                      />
+                      Trực tiếp
+                    </label>
                   </div>
+
+                  {discountMode === "code" ? (
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="text"
+                        value={discountCode}
+                        onChange={(e) => {
+                          setDiscountCode(e.target.value);
+                          if (e.target.value.trim() === "") {
+                            setDiscountAmount(0);
+                            setDiscountType(null);
+                            setDiscountError("");
+                          }
+                        }}
+                        onBlur={handleValidateDiscount}
+                        placeholder="Nhập mã giảm giá..."
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button
+                        onClick={handleValidateDiscount}
+                        className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600"
+                      >
+                        Áp dụng
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2 mb-3">
+                      <select
+                        value={discountType || "fixed"}
+                        onChange={(e) => {
+                          const v = e.target.value as
+                            | "percentage"
+                            | "fixed"
+                            | "";
+                          setDiscountType(v ? v : null);
+                          setDiscountAmount(0);
+                          setDiscountError("");
+                        }}
+                        className="w-40 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="percentage">Giảm theo %</option>
+                        <option value="fixed">Giảm trực tiếp</option>
+                      </select>
+                      <input
+                        type="number"
+                        min="0"
+                        value={discountAmount || ""}
+                        onChange={(e) => {
+                          const raw = parseFloat(e.target.value || "0");
+                          if (!discountType) {
+                            setDiscountError("Vui lòng chọn loại giảm giá");
+                            setDiscountAmount(0);
+                            return;
+                          }
+                          setDiscountError("");
+                          if (discountType === "percentage") {
+                            const clamped = Math.max(0, Math.min(100, raw));
+                            setDiscountAmount(clamped);
+                          } else {
+                            setDiscountAmount(Math.max(0, raw));
+                          }
+                        }}
+                        placeholder={
+                          discountType === "percentage"
+                            ? "Nhập %"
+                            : "Nhập số tiền (VND)"
+                        }
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
                   {discountError && (
                     <div className="text-sm text-red-600 mb-2">
                       {discountError}
@@ -2281,7 +2368,8 @@ export default function IPOSPage() {
                   )}
                   {discountAmount > 0 && discountType && (
                     <div className="text-sm text-green-600 mb-2">
-                      Đã áp dụng giảm giá:{" "}
+                      Đã áp dụng giảm giá{" "}
+                      {discountMode === "code" ? "(mã)" : "(trực tiếp)"}:{" "}
                       {discountType === "percentage"
                         ? `${discountAmount}%`
                         : formatCurrency(discountAmount)}
